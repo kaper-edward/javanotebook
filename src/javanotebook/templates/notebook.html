@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Java Notebook - {{ notebook_filename }}</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/theme/default.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/default.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/clike/clike.min.js"></script>
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <h1>☕ Java Notebook</h1>
+            <div class="notebook-info">
+                <span class="filename">{{ notebook_filename }}</span>
+                <div class="stats">
+                    <span class="stat">총 {{ total_cells }}개 셀</span>
+                    <span class="stat">코드 {{ code_cells }}개</span>
+                    <span class="stat">마크다운 {{ markdown_cells }}개</span>
+                    <button class="btn btn-add-cell" onclick="addNewCodeCell()">+ 코드 셀 추가</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="main">
+        <div class="container">
+            <div class="notebook">
+                {% for cell in notebook.cells %}
+                <div class="cell {{ cell.cell_type }}-cell" data-cell-id="{{ cell.id }}">
+                    {% if cell.cell_type == "markdown" %}
+                    <div class="cell-content markdown-content">
+                        {{ cell.content | safe }}
+                    </div>
+                    {% elif cell.cell_type == "code" %}
+                    <div class="cell-header">
+                        <span class="cell-type">☕ Java Code</span>
+                        <div class="cell-actions">
+                            <button class="btn btn-run" onclick="executeCell('{{ cell.id }}')">
+                                <span class="btn-text">실행</span>
+                                <span class="btn-spinner" style="display: none;">⚡</span>
+                            </button>
+                            <button class="btn btn-validate" onclick="validateCell('{{ cell.id }}')">검증</button>
+                        </div>
+                    </div>
+                    <div class="cell-content">
+                        <textarea class="code-editor" id="editor-{{ cell.id }}">{{ cell.content }}</textarea>
+                    </div>
+                    <div class="cell-output" id="output-{{ cell.id }}" style="display: none;">
+                        <div class="output-header">실행 결과:</div>
+                        <div class="output-content"></div>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <p>Java Notebook v0.1.0 - FastAPI 기반 Java 코드 실행 환경</p>
+        </div>
+    </footer>
+
+    <script src="/static/js/notebook.js"></script>
+    <script>
+        // AIDEV-NOTE: Initialize CodeMirror editors for all code cells
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeNotebook();
+        });
+    </script>
+</body>
+</html>
