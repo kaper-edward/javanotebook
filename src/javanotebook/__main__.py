@@ -7,6 +7,7 @@ from pathlib import Path
 import uvicorn
 
 from .main import create_app
+from .format_detector import FormatDetector, NotebookFormat
 
 
 def main():
@@ -17,7 +18,7 @@ def main():
     
     parser.add_argument(
         "notebook",
-        help="Path to the notebook file (.md)"
+        help="Path to the notebook file (.md or .ipynb)"
     )
     
     parser.add_argument(
@@ -44,6 +45,19 @@ def main():
         action="store_true",
         help="Enable debug mode"
     )
+
+    parser.add_argument(
+        "--format",
+        choices=["md", "ipynb", "auto"],
+        default="auto",
+        help="Notebook format (default: auto-detect)"
+    )
+
+    parser.add_argument(
+        "--output-format",
+        choices=["md", "ipynb"],
+        help="Output format for conversions (optional)"
+    )
     
     args = parser.parse_args()
     
@@ -52,12 +66,24 @@ def main():
     if not notebook_path.exists():
         print(f"Error: Notebook file not found: {args.notebook}")
         return 1
-    
-    if not notebook_path.suffix.lower() == ".md":
-        print(f"Warning: Expected .md file, got {notebook_path.suffix}")
-    
-    # AIDEV-NOTE: Create FastAPI app with notebook file
-    app = create_app(str(notebook_path.absolute()))
+
+    # AIDEV-NOTE: Detect and validate notebook format
+    try:
+        if args.format == "auto":
+            detected_format = FormatDetector.detect_format(str(notebook_path))
+            print(f"Detected format: {detected_format.value}")
+        else:
+            detected_format = NotebookFormat(args.format)
+            # Validate format consistency
+            if not FormatDetector.validate_format_consistency(str(notebook_path), detected_format):
+                print(f"Warning: File content may not match specified format ({args.format})")
+
+        # AIDEV-NOTE: Create FastAPI app with notebook file and format info
+        app = create_app(str(notebook_path.absolute()), detected_format)
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return 1
     
     # Open browser if requested
     if not args.no_browser:
@@ -69,7 +95,7 @@ def main():
         threading.Timer(1.5, open_browser).start()
     
     print(f"Starting Java Notebook server...")
-    print(f"Notebook: {notebook_path.name}")
+    print(f"Notebook: {notebook_path.name} ({detected_format.value})")
     print(f"URL: http://{args.host}:{args.port}")
     print("Press Ctrl+C to stop the server")
     

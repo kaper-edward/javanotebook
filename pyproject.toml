@@ -36,6 +36,8 @@ dependencies = [
     "markdown>=3.5.0",
     "pygments>=2.16.0",
     "aiofiles>=23.2.0",
+    "nbformat>=5.7.0",
+    "jupyter-core>=5.0.0",
 ]
 
 [project.optional-dependencies]

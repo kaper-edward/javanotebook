@@ -4,20 +4,36 @@
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Java Notebook (jvnb)은 Java 코드를 Jupyter 스타일의 노트북 환경에서 실행할 수 있게 해주는 Python 패키지입니다. 마크다운 형식으로 작성된 파일에서 Java 코드 블록을 실행하고 결과를 웹 인터페이스에서 바로 확인할 수 있습니다.
+Java Notebook (jvnb)은 Java 코드를 Jupyter 스타일의 노트북 환경에서 실행할 수 있게 해주는 Python 패키지입니다. **마크다운(.md)과 Jupyter(.ipynb) 두 가지 형식을 모두 지원**하여 다양한 사용 시나리오에 대응합니다.
 
 ## ✨ 주요 기능
 
-- 📝 **마크다운 기반**: 표준 마크다운 형식으로 문서와 코드를 함께 작성
-- ☕ **Java 코드 실행**: 웹 인터페이스에서 Java 코드를 즉시 컴파일하고 실행
+### 🔄 **듀얼 포맷 지원**
+- 📝 **마크다운 형식 (.md)**: 교육용에 최적화된 심플한 인터페이스
+- 📓 **Jupyter 형식 (.ipynb)**: 표준 Jupyter 생태계와 완전 호환
+- 🔍 **자동 감지**: 파일 확장자와 내용을 기반으로 형식 자동 판별
+
+### ☕ **Java 코드 실행**
 - 🌐 **FastAPI 기반**: 현대적이고 빠른 웹 서버와 API
-- 🎨 **서버사이드 렌더링**: Python markdown + Pygments로 구문 강조
 - ⌨️ **향상된 편집기**: CodeMirror 기반 에디터와 키보드 단축키 지원
 - 🔍 **구조화된 에러**: 컴파일/런타임 오류의 상세한 표시
-- ➕ **동적 셀 추가**: 런타임에 새로운 코드 셀을 추가/삭제
 - 🚀 **자동 main 래핑**: main 메소드 없는 간단한 코드도 즉시 실행
 - 📤 **완전한 출력**: stdout과 stderr 모두 실행 결과에 표시
+
+### 📝 **마크다운 형식 전용**
+- 🎨 **서버사이드 렌더링**: Python markdown + Pygments로 구문 강조
+- ➕ **동적 셀 추가**: 런타임에 새로운 코드 셀을 추가/삭제
+
+### 📓 **Jupyter 형식 전용**
+- 🏷️ **표준 호환성**: nbformat 라이브러리 기반으로 완전한 Jupyter 호환성
+- 🎯 **표준 UI**: In[]/Out[] 프롬프트, execution_count 관리
+- ⚡ **실시간 렌더링**: marked.js를 활용한 클라이언트사이드 마크다운 렌더링
+- ⌨️ **표준 단축키**: Shift+Enter, Ctrl+Enter 등 Jupyter 표준 키보드 단축키
+- 🔗 **생태계 호환**: VS Code, JupyterLab에서 바로 열람 가능
+
+### 📦 **공통 기능**
 - 📦 **간편한 설치**: pip를 통한 원클릭 설치
+- 🎯 **포트 설정**: --port 옵션으로 사용자 지정 포트 지원
 
 ## 🛠 설치 요구사항
 
@@ -34,7 +50,9 @@ pip install javanotebook
 
 ### 1. 노트북 파일 생성
 
-마크다운 형식으로 Java 코드가 포함된 파일을 작성합니다:
+#### 마크다운 형식 (.md)
+
+표준 마크다운 형식으로 Java 코드가 포함된 파일을 작성합니다:
 
 ```markdown
 # 내 첫 번째 Java 노트북
@@ -74,6 +92,62 @@ int x = 10;
 int y = 20;
 System.out.println("합계: " + (x + y));
 ```
+
+#### Jupyter 형식 (.ipynb)
+
+표준 Jupyter 노트북 형식으로 파일을 작성합니다. VS Code, JupyterLab에서 직접 편집 가능:
+
+```json
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# 내 첫 번째 Java Jupyter 노트북\n",
+    "\n",
+    "안녕하세요! 이것은 Jupyter 마크다운 셀입니다."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "public class HelloWorld {\n",
+    "    public static void main(String[] args) {\n",
+    "        System.out.println(\"Hello, Java Notebook!\");\n",
+    "    }\n",
+    "}"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "// 간단한 코드도 자동 래핑됩니다\n",
+    "System.out.println(\"Hello from Jupyter!\");\n",
+    "int sum = 10 + 20;\n",
+    "System.out.println(\"Sum: \" + sum);"
+   ],
+   "outputs": []
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Java",
+   "language": "java",
+   "name": "java"
+  },
+  "language_info": {
+   "name": "java"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 4
+}
 ```
 
 ### 2. 노트북 실행
@@ -84,14 +158,19 @@ make dev                    # 기본 예제로 서버 시작
 make example-algorithms     # 알고리즘 예제
 make example-data-structures # 자료구조 예제
 
-# 직접 명령어 사용
+# 직접 명령어 사용 - 마크다운 형식
 python -m javanotebook my_notebook.md
 
-# 설치된 패키지 명령어
+# 직접 명령어 사용 - Jupyter 형식
+python -m javanotebook my_notebook.ipynb
+
+# 설치된 패키지 명령어 (둘 다 지원)
 javanotebook my_notebook.md
+javanotebook my_notebook.ipynb
 
 # 옵션과 함께 실행
 python -m javanotebook examples/basic_java.md --port 8080 --debug
+python -m javanotebook examples/algorithms.ipynb --port 8080 --debug
 ```
 
 ### 3. 웹 브라우저에서 확인
@@ -135,15 +214,24 @@ python -m javanotebook examples/basic_java.md --port 8080 --debug
 
 프로젝트에 포함된 예제 파일들:
 
+**마크다운 형식 (.md)**:
 - `examples/basic_java.md`: 기본 Java 문법 예제
 - `examples/data_structures.md`: 자료구조 예제
 - `examples/algorithms.md`: 알고리즘 예제
 
+**Jupyter 형식 (.ipynb)**:
+- `examples/algorithms.ipynb`: 알고리즘 예제 (Jupyter 형식)
+- `examples/data_structures.ipynb`: 자료구조 예제 (Jupyter 형식)
+
 ```bash
-# 예제 실행
+# 마크다운 예제 실행
 make example-basic          # 또는 python -m javanotebook examples/basic_java.md
-make example-algorithms     # 또는 python -m javanotebook examples/algorithms.md  
+make example-algorithms     # 또는 python -m javanotebook examples/algorithms.md
 make example-data-structures # 또는 python -m javanotebook examples/data_structures.md
+
+# Jupyter 예제 실행
+python -m javanotebook examples/algorithms.ipynb
+python -m javanotebook examples/data_structures.ipynb
 ```
 
 ## 🎯 사용 시나리오
@@ -254,6 +342,10 @@ Java Notebook은 다음과 같은 구조로 작동합니다:
 - [x] **NEW (2025-09-16)**: 자동 main 메소드 래핑
 - [x] **NEW (2025-09-16)**: stdout/stderr 완전한 출력 표시
 - [x] **NEW (2025-09-16)**: 향상된 런타임 에러 표시
+- [x] **NEW (2025-09-17)**: Jupyter 노트북 형식 (.ipynb) 완전 지원
+- [x] **NEW (2025-09-17)**: 듀얼 포맷 자동 감지 및 렌더링
+- [x] **NEW (2025-09-17)**: 표준 Jupyter UI (In[]/Out[] 프롬프트, execution_count)
+- [x] **NEW (2025-09-17)**: 클라이언트사이드 마크다운 렌더링 (marked.js)
 
 ### 향후 계획 📋
 - [ ] 멀티파일 Java 프로젝트 지원
@@ -291,7 +383,9 @@ Java Notebook은 다음과 같은 구조로 작동합니다:
 
 - [Jupyter Project](https://jupyter.org/)에서 영감을 받았습니다
 - [CodeMirror](https://codemirror.net/) 코드 편집기를 사용합니다
-- [Flask](https://flask.palletsprojects.com/) 웹 프레임워크를 사용합니다
+- [FastAPI](https://fastapi.tiangolo.com/) 웹 프레임워크를 사용합니다
+- [marked.js](https://marked.js.org/) 마크다운 렌더링을 사용합니다
+- [nbformat](https://nbformat.readthedocs.io/) Jupyter 노트북 표준을 따릅니다
 
 ---
 

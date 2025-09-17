@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Java Notebook - {{ notebook_filename }}</title>
+    <link rel="stylesheet" href="/static/css/jupyter_notebook.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/theme/default.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/default.min.css">
+
+    <!-- Jupyter-specific libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/clike/clike.min.js"></script>
+</head>
+<body>
+    <header class="jupyter-header">
+        <div class="container">
+            <h1>📓 Java Notebook (Jupyter)</h1>
+            <div class="notebook-info">
+                <span class="filename">{{ notebook_filename }}</span>
+                <div class="notebook-meta">
+                    <span class="format-badge">{{ format }}</span>
+                    <span class="version-badge">v{{ nbformat_version }}</span>
+                </div>
+                <div class="stats">
+                    <span class="stat">총 {{ total_cells }}개 셀</span>
+                    <span class="stat">코드 {{ code_cells }}개</span>
+                    <span class="stat">마크다운 {{ markdown_cells }}개</span>
+                    {% if raw_cells > 0 %}
+                    <span class="stat">Raw {{ raw_cells }}개</span>
+                    {% endif %}
+                    <button class="btn btn-add-cell" onclick="addNewCodeCell()">+ 코드 셀 추가</button>
+                    <button class="btn btn-add-markdown" onclick="addNewMarkdownCell()">+ 마크다운 셀 추가</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="jupyter-main">
+        <div class="container">
+            <div class="jupyter-toolbar">
+                <div class="toolbar-group">
+                    <button class="btn btn-run-all" onclick="runAllCells()">▶ 모든 셀 실행</button>
+                    <button class="btn btn-restart" onclick="restartKernel()">🔄 커널 재시작</button>
+                </div>
+                <div class="toolbar-group">
+                    <button class="btn btn-save" onclick="saveNotebook()">💾 저장</button>
+                    <button class="btn btn-export" onclick="exportNotebook()">📤 내보내기</button>
+                </div>
+            </div>
+
+            <div class="jupyter-notebook">
+                <!-- AIDEV-NOTE: Debug info for cell rendering -->
+                <!-- Total cells: {{ notebook.cells|length }} -->
+                {% for cell in notebook.cells %}
+                <div class="jupyter-cell {{ cell.cell_type }}-cell" data-cell-id="{{ cell.id }}" data-cell-type="{{ cell.cell_type }}" data-cell-index="{{ loop.index0 }}">
+
+                    <!-- Debug: Cell {{ loop.index }}/{{ notebook.cells|length }} - ID: {{ cell.id }} - Type: {{ cell.cell_type }} -->
+
+                    {% if cell.cell_type == "markdown" %}
+                    <!-- Markdown Cell -->
+                    <div class="cell-toolbar">
+                        <span class="cell-type-indicator">Markdown</span>
+                        <div class="cell-actions">
+                            <button class="btn btn-edit" onclick="editMarkdownCell('{{ cell.id }}')">편집</button>
+                            <button class="btn btn-delete" onclick="deleteCell('{{ cell.id }}')">삭제</button>
+                        </div>
+                    </div>
+
+                    <div class="markdown-cell-content" id="markdown-content-{{ cell.id }}">
+                        <!-- Rendered markdown will be inserted here by JavaScript -->
+                    </div>
+
+                    <div class="markdown-cell-editor" id="markdown-editor-{{ cell.id }}" style="display: none;">
+                        <textarea class="markdown-source" id="markdown-source-{{ cell.id }}">{% if cell.source is string %}{{ cell.source }}{% else %}{{ cell.source | join }}{% endif %}</textarea>
+                        <div class="editor-actions">
+                            <button class="btn btn-render" onclick="renderMarkdownCell('{{ cell.id }}')">렌더링</button>
+                            <button class="btn btn-cancel" onclick="cancelMarkdownEdit('{{ cell.id }}')">취소</button>
+                        </div>
+                    </div>
+
+                    {% elif cell.cell_type == "code" %}
+                    <!-- Code Cell -->
+                    <div class="code-cell-input-section">
+                        <div class="code-cell-prompt">
+                            <div class="input-prompt">
+                                In [{% if cell.execution_count %}{{ cell.execution_count }}{% else %}&nbsp;{% endif %}]:
+                            </div>
+                        </div>
+
+                        <div class="code-cell-content">
+                            <div class="cell-toolbar">
+                                <span class="cell-type-indicator">☕ Java</span>
+                                <div class="cell-actions">
+                                    <button class="btn btn-run" onclick="executeJupyterCell('{{ cell.id }}')">
+                                        <span class="btn-text">실행</span>
+                                        <span class="btn-spinner" style="display: none;">⚡</span>
+                                    </button>
+                                    <button class="btn btn-validate" onclick="validateJupyterCell('{{ cell.id }}')">검증</button>
+                                    <button class="btn btn-delete" onclick="deleteCell('{{ cell.id }}')">삭제</button>
+                                </div>
+                            </div>
+
+                            <div class="code-input">
+                                <textarea class="code-editor" id="editor-{{ cell.id }}">{% if cell.source is string %}{{ cell.source }}{% else %}{{ cell.source | join }}{% endif %}</textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="code-cell-output" id="output-{{ cell.id }}" style="display: none;">
+                        <div class="output-prompt">
+                            Out[<span id="output-number-{{ cell.id }}">&nbsp;</span>]:
+                        </div>
+                        <div class="output-content" id="output-content-{{ cell.id }}">
+                            <!-- Execution results will be inserted here -->
+                        </div>
+                    </div>
+
+                    {% elif cell.cell_type == "raw" %}
+                    <!-- Raw Cell -->
+                    <div class="cell-toolbar">
+                        <span class="cell-type-indicator">Raw</span>
+                        <div class="cell-actions">
+                            <button class="btn btn-edit" onclick="editRawCell('{{ cell.id }}')">편집</button>
+                            <button class="btn btn-delete" onclick="deleteCell('{{ cell.id }}')">삭제</button>
+                        </div>
+                    </div>
+
+                    <div class="raw-cell-content">
+                        <pre class="raw-content">{% if cell.source is string %}{{ cell.source }}{% else %}{{ cell.source | join }}{% endif %}</pre>
+                    </div>
+
+                    {% endif %}
+
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </main>
+
+    <footer class="jupyter-footer">
+        <div class="container">
+            <div class="footer-content">
+                <p>Java Notebook v0.2.0 - Jupyter 호환 Java 실행 환경</p>
+                <div class="kernel-status">
+                    <span class="status-indicator" id="kernel-status">🟢</span>
+                    <span class="status-text">Java 커널 준비됨</span>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Modal for adding cells -->
+    <div id="add-cell-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>새 셀 추가</h3>
+                <button class="modal-close" onclick="closeAddCellModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="cell-type-selector">
+                    <button class="btn btn-cell-type" data-type="code">☕ 코드 셀</button>
+                    <button class="btn btn-cell-type" data-type="markdown">📝 마크다운 셀</button>
+                    <button class="btn btn-cell-type" data-type="raw">📄 Raw 셀</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables for Jupyter notebook
+        window.notebookFormat = 'ipynb';
+        window.notebookData = {
+            filename: '{{ notebook_filename }}',
+            format: '{{ format }}',
+            version: '{{ nbformat_version }}',
+            totalCells: {{ total_cells }},
+            codeCells: {{ code_cells }},
+            markdownCells: {{ markdown_cells }},
+            rawCells: {{ raw_cells }}
+        };
+
+        // Cell data for JavaScript
+        window.cellData = {{ cell_data_json | safe }};
+
+        // AIDEV-NOTE: Debug information
+        console.log('Notebook loaded with', window.cellData.length, 'cells');
+        console.log('Cell IDs:', window.cellData.map(c => c.id));
+        console.log('Cell types:', window.cellData.map(c => c.type));
+    </script>
+
+    <script src="/static/js/jupyter_notebook.js"></script>
+    <script>
+        // Initialize Jupyter notebook interface
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeJupyterNotebook();
+        });
+    </script>
+</body>
+</html>

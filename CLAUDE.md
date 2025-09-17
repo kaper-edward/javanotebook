@@ -1,7 +1,7 @@
 # CLAUDE.md - Java Notebook (jvnb)
-*Last updated 2025-09-16*
+*Last updated 2025-09-17*
 
-> **purpose** – This file is the onboarding manual for every AI assistant (Claude, Cursor, GPT, etc.) and every human who edits this repository.  
+> **purpose** – This file is the onboarding manual for every AI assistant (Claude, Cursor, GPT, etc.) and every human who edits this repository.
 > It encodes our coding standards, guard-rails, and workflow tricks for the Java Jupyter-style notebook project.
 
 ---
@@ -10,15 +10,27 @@
 
 Java Notebook (jvnb)는 Java 코드를 Jupyter 스타일의 노트북 환경에서 실행할 수 있도록 하는 Python 패키지입니다. 주요 기능:
 
-- **마크다운 기반 노트북**: 표준 마크다운 형식으로 Java 코드와 문서를 혼합
+### Core Features
+- **듀얼 포맷 지원**: 마크다운(.md)과 Jupyter(.ipynb) 형식 모두 지원
 - **FastAPI 웹 서버**: 현대적이고 빠른 FastAPI 기반 로컬 웹 서버
-- **서버사이드 렌더링**: Python markdown + Pygments로 서버에서 HTML 변환
 - **Java 코드 실행**: Python이 JDK를 오케스트레이션하여 Java 코드 컴파일 및 실행
-- **향상된 UI/UX**: CodeMirror 기반 코드 편집기, 키보드 단축키, 구조화된 에러 메시지
-- **동적 셀 추가**: 런타임에 새로운 Java 코드 셀을 추가/삭제 가능
+- **향상된 UI/UX**: 각 형식에 최적화된 별도 인터페이스
 - **자동 main 래핑**: main 메소드가 없는 간단한 코드를 자동으로 실행 가능한 클래스로 감싸기
 - **완전한 출력 표시**: stdout과 stderr 모두 실행 결과에 표시
 - **pip 설치 가능**: `pip install javanotebook` 명령으로 설치 가능한 Python 패키지
+
+### Format-Specific Features
+
+#### 마크다운(.md) 형식
+- **서버사이드 렌더링**: Python markdown + Pygments로 서버에서 HTML 변환
+- **동적 셀 추가**: 런타임에 새로운 Java 코드 셀을 추가/삭제 가능
+- **커스텀 인터페이스**: 교육용에 최적화된 심플한 UI
+
+#### Jupyter(.ipynb) 형식
+- **표준 호환성**: nbformat 라이브러리 기반으로 완전한 Jupyter 호환성
+- **클라이언트사이드 렌더링**: marked.js를 활용한 실시간 마크다운 렌더링
+- **표준 Jupyter UI**: In[]/Out[] 프롬프트, execution_count 관리
+- **키보드 단축키**: Shift+Enter, Ctrl+Enter 등 표준 Jupyter 단축키
 
 **Golden rule**: When unsure about implementation details or requirements, ALWAYS consult the developer rather than making assumptions.
 
@@ -48,10 +60,19 @@ make install-dev                 # Install development dependencies + pre-commit
 make check-java                  # Verify Java JDK installation
 
 # Development server
-make dev                         # Start server with basic_java.md example
-make example-algorithms          # Run algorithms example
-make example-data-structures     # Run data structures example
-python -m javanotebook my_notebook.md  # Run custom notebook
+make dev                         # Start server with basic_java.md example (markdown)
+make example-algorithms          # Run algorithms example (markdown)
+make example-data-structures     # Run data structures example (markdown)
+
+# Format-specific execution
+python -m javanotebook notebook.md      # Markdown format
+python -m javanotebook notebook.ipynb   # Jupyter format
+python -m javanotebook notebook.md --format md    # Explicit markdown
+python -m javanotebook notebook.ipynb --format ipynb  # Explicit Jupyter
+python -m javanotebook notebook.md --format auto  # Auto-detect format
+
+# With custom options
+python -m javanotebook notebook.ipynb --port 8080 --host 0.0.0.0
 
 # Testing
 make test                        # Run all tests
@@ -143,31 +164,55 @@ def compile_and_run_java(java_code: str) -> dict:
 | ----------------------- | ------------------------------------------------- |
 | `src/javanotebook/`     | Main package source code                         |
 | `├── __main__.py`       | Entry point for `python -m javanotebook`        |
-| `├── main.py`           | FastAPI web application                         |
-| `├── parser.py`         | Markdown notebook parser                        |
-| `├── executor.py`       | Java code compilation and execution             |
+| `├── main.py`           | FastAPI web application with dual format routing |
+| `├── parser.py`         | Markdown notebook parser (legacy format)        |
+| `├── nb_parser.py`      | **NEW**: Jupyter notebook parser (nbformat)     |
+| `├── executor.py`       | Java code compilation and execution (markdown)  |
+| `├── nb_executor.py`    | **NEW**: Jupyter-compatible Java executor       |
+| `├── models.py`         | Pydantic models for markdown format             |
+| `├── nb_models.py`      | **NEW**: Jupyter notebook models (nbformat)     |
+| `├── format_detector.py`| **NEW**: File format detection (.md vs .ipynb) |
 | `├── static/`           | CSS, JavaScript, images for web interface       |
+| `│   ├── css/style.css` | Styles for markdown format                      |
+| `│   ├── css/jupyter_notebook.css` | **NEW**: Jupyter-specific styles |
+| `│   ├── js/notebook.js`| JavaScript for markdown format                  |
+| `│   └── js/jupyter_notebook.js` | **NEW**: Jupyter-specific JavaScript |
 | `├── templates/`        | HTML templates for web interface                |
-| `├── models.py`         | Pydantic models for request/response            |
+| `│   ├── notebook.html` | Template for markdown format                    |
+| `│   └── jupyter_notebook.html` | **NEW**: Template for Jupyter format |
 | `├── routers/`          | FastAPI route handlers                          |
 | `└── exceptions.py`     | Custom exception definitions                     |
-| `examples/`             | Example notebook files (basic, algorithms, data structures) |
+| `examples/`             | Example notebook files (.md and .ipynb)         |
 | `tests/`                | Test suite (unit, integration)                  |
 | `docs/`                 | Documentation files                              |
 
 **Key domain models**:
+
+### Markdown Format (Legacy)
 - **Notebook**: Collection of cells parsed from markdown file
 - **Cell**: Base class for notebook cells (markdown or code)
 - **MarkdownCell**: Cell containing server-rendered HTML content
-- **JavaCodeCell**: Cell containing Java code for execution (supports dynamic addition/deletion)
-- **ExecutionResult**: Result of Java code compilation and execution with enhanced error formatting
+- **JavaCodeCell**: Cell containing Java code for execution
+- **ExecutionResult**: Result of Java code compilation and execution
 - **ExecutionRequest**: Request model for code execution with validation
 
-**New Features (2025-09-16)**:
-- **Dynamic Cell Management**: Add/delete code cells at runtime via JavaScript
-- **Auto Main Wrapping**: Automatically wrap simple code without main method
-- **Complete Output Display**: Show both stdout and stderr in execution results
-- **Enhanced Error Display**: Full runtime errors shown immediately without collapsing
+### Jupyter Format (New)
+- **JupyterNotebook**: Standard Jupyter notebook with nbformat compliance
+- **JupyterCell**: Base class for Jupyter cells (markdown, code, raw)
+- **JupyterMarkdownCell**: Markdown cell with client-side rendering
+- **JupyterCodeCell**: Code cell with execution_count and standard outputs
+- **JupyterRawCell**: Raw cell for unformatted content
+- **JupyterExecutionResult**: Jupyter-compatible execution results
+- **JupyterOutput**: Standard Jupyter output types (stream, error, execute_result)
+
+**Latest Features (2025-09-17)**:
+- **Dual Format Support**: Complete .md and .ipynb format support with separate interfaces
+- **Format Auto-Detection**: Automatic detection based on file extension and content
+- **Jupyter Standard Compliance**: Full nbformat library integration
+- **Client-side Markdown Rendering**: marked.js integration for Jupyter cells
+- **Standard Jupyter UI**: In[]/Out[] prompts, execution_count management
+- **Keyboard Shortcuts**: Standard Jupyter shortcuts (Shift+Enter, Ctrl+Enter, etc.)
+- **Template Separation**: Dedicated templates and assets for each format
 
 ---
 
