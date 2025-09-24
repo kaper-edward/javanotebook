@@ -7,6 +7,49 @@ import nbformat
 from nbformat import NotebookNode
 
 
+# AIDEV-NOTE: JavaNotebook-specific metadata models for cell connections
+class JavaNotebookMetadata(BaseModel):
+    """Metadata schema for JavaNotebook-specific cell information."""
+
+    project_group: Optional[str] = Field(None, description="ID of the project group this cell belongs to")
+    execution_order: Optional[int] = Field(None, description="Order of execution within the group")
+    is_main: bool = Field(False, description="Whether this cell contains the main class")
+    package_name: Optional[str] = Field(None, description="Java package name extracted from the code")
+    class_name: Optional[str] = Field(None, description="Main Java class name in this cell")
+
+
+class CellConnectionRequest(BaseModel):
+    """Request model for connecting two cells."""
+
+    cell_id1: str = Field(..., description="ID of the first cell to connect")
+    cell_id2: str = Field(..., description="ID of the second cell to connect")
+    notebook_path: str = Field(..., description="Path to the notebook file")
+
+
+class CellDisconnectionRequest(BaseModel):
+    """Request model for disconnecting cells."""
+
+    cell_id: str = Field(..., description="ID of the cell to disconnect from its group")
+    notebook_path: str = Field(..., description="Path to the notebook file")
+
+
+class ProjectGroupExecutionRequest(BaseModel):
+    """Request model for executing a project group."""
+
+    group_id: str = Field(..., description="ID of the project group to execute")
+    notebook_path: str = Field(..., description="Path to the notebook file")
+
+
+class ProjectGroupInfo(BaseModel):
+    """Information about a project group."""
+
+    group_id: str
+    cell_ids: List[str]
+    main_cell_id: Optional[str]
+    execution_order: List[str]
+    package_names: List[str]
+
+
 class JupyterCell(BaseModel):
     """Base model for Jupyter notebook cells."""
 
@@ -30,6 +73,31 @@ class JupyterCell(BaseModel):
         if isinstance(v, str):
             return v.splitlines(True) if '\n' in v else [v]
         return v
+
+    # AIDEV-NOTE: JavaNotebook-specific metadata helpers
+    def get_javanotebook_metadata(self) -> Optional[JavaNotebookMetadata]:
+        """Get JavaNotebook-specific metadata from cell metadata."""
+        jn_metadata = self.metadata.get("javanotebook")
+        if jn_metadata:
+            try:
+                return JavaNotebookMetadata(**jn_metadata)
+            except Exception:
+                return None
+        return None
+
+    def set_javanotebook_metadata(self, jn_metadata: JavaNotebookMetadata) -> None:
+        """Set JavaNotebook-specific metadata in cell metadata."""
+        self.metadata["javanotebook"] = jn_metadata.dict(exclude_none=True)
+
+    def is_connected(self) -> bool:
+        """Check if this cell is connected to a project group."""
+        jn_meta = self.get_javanotebook_metadata()
+        return jn_meta is not None and jn_meta.project_group is not None
+
+    def get_project_group(self) -> Optional[str]:
+        """Get the project group ID this cell belongs to."""
+        jn_meta = self.get_javanotebook_metadata()
+        return jn_meta.project_group if jn_meta else None
 
 
 class JupyterMarkdownCell(JupyterCell):
@@ -133,6 +201,62 @@ class JupyterNotebook(BaseModel):
     def raw_cells(self) -> List[JupyterRawCell]:
         """Get all raw cells."""
         return [cell for cell in self.cells if isinstance(cell, JupyterRawCell)]
+
+    # AIDEV-NOTE: Project group management methods
+    def get_project_groups(self) -> Dict[str, ProjectGroupInfo]:
+        """Get all project groups in this notebook."""
+        groups: Dict[str, ProjectGroupInfo] = {}
+
+        for cell in self.cells:
+            if isinstance(cell, JupyterCodeCell) and cell.is_connected():
+                group_id = cell.get_project_group()
+                if group_id:
+                    if group_id not in groups:
+                        groups[group_id] = ProjectGroupInfo(
+                            group_id=group_id,
+                            cell_ids=[],
+                            main_cell_id=None,
+                            execution_order=[],
+                            package_names=[]
+                        )
+
+                    groups[group_id].cell_ids.append(cell.id)
+                    jn_meta = cell.get_javanotebook_metadata()
+                    if jn_meta:
+                        if jn_meta.is_main:
+                            groups[group_id].main_cell_id = cell.id
+                        if jn_meta.execution_order is not None:
+                            groups[group_id].execution_order.append(cell.id)
+                        if jn_meta.package_name:
+                            groups[group_id].package_names.append(jn_meta.package_name)
+
+        # Sort execution order by order value
+        for group in groups.values():
+            group.execution_order.sort(key=lambda cell_id: self._get_cell_execution_order(cell_id))
+
+        return groups
+
+    def _get_cell_execution_order(self, cell_id: str) -> int:
+        """Get execution order for a cell."""
+        for cell in self.cells:
+            if cell.id == cell_id:
+                jn_meta = cell.get_javanotebook_metadata()
+                return jn_meta.execution_order if jn_meta and jn_meta.execution_order else 999
+        return 999
+
+    def get_cells_in_group(self, group_id: str) -> List[JupyterCodeCell]:
+        """Get all code cells in a specific project group."""
+        return [
+            cell for cell in self.code_cells
+            if cell.get_project_group() == group_id
+        ]
+
+    def find_cell_by_id(self, cell_id: str) -> Optional[JupyterCell]:
+        """Find a cell by its ID."""
+        for cell in self.cells:
+            if cell.id == cell_id:
+                return cell
+        return None
 
     def to_notebook_node(self) -> NotebookNode:
         """Convert to nbformat NotebookNode."""

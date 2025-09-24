@@ -1,97 +1,181 @@
-# PLAN.md - 코드 셀 추가 및 자동 main 메소드 래핑 기능 구현
-*작성일: 2025-09-16*
+# Java Notebook 그룹 실행 최종 수정 계획
 
-## 요구사항
-1. **코드 셀 추가 기능**: 사용자가 새로운 Java 코드 셀을 웹 인터페이스에서 동적으로 추가
-2. **자동 main 메소드 래핑**: main 메소드가 없는 코드를 자동으로 `class Main { public static void main... }` 구조로 감싸서 실행
+## 📋 수정해야 할 문제점들
 
-## 구현 계획
+### 1. 🚨 Java 패키지 컴파일 오류
+**문제**: `Goblin cannot be resolved to a type` 컴파일 에러
+- Main.java (package game;)에서 Goblin.java (package game.monster;) 클래스를 찾지 못함
+- 현재 컴파일 명령어가 패키지 간 의존성을 제대로 해결하지 못함
 
-### 1. 백엔드 (Python) - 자동 main 메소드 래핑
-**파일**: `src/javanotebook/executor.py`
+### 2. 📍 그룹 실행 결과 출력 위치
+**문제**: 그룹 실행 결과가 첫 번째 셀 아래에만 출력됨
+- 단일 셀 실행은 해당 셀 아래 표준 Jupyter 형식으로 출력
+- 그룹 실행은 마지막 셀 아래에 동일한 형식으로 출력되어야 함
 
-**구현 내용**:
-- `wrap_code_with_main()` 메소드 추가
-  - main 메소드가 없는 코드를 감지
-  - 코드를 Main 클래스의 main 메소드 내부에 자동 배치
-- `execute_java_code()` 메소드 수정
-  - 실행 전 main 메소드 존재 여부 확인
-  - 없으면 자동 래핑 적용
+---
 
-**예시 래핑 결과**:
-```java
-// 입력 코드:
-System.out.println("Hello World");
-int x = 5 + 3;
+## 🔧 수정 계획
 
-// 자동 래핑 결과:
-public class Main {
-    public static void main(String[] args) {
-        System.out.println("Hello World");
-        int x = 5 + 3;
-    }
+### A. Java 패키지 컴파일 오류 수정
+
+#### 📁 수정 대상 파일
+- `src/javanotebook/project_executor.py`
+
+#### 🛠️ 수정 내용
+**1. _compile_project_in_dir() 메서드의 컴파일 명령어 개선**
+
+**기존 명령어:**
+```python
+compile_result = subprocess.run(
+    ["javac", "-d", temp_dir, "-cp", temp_dir] + java_files,
+    capture_output=True,
+    text=True,
+    timeout=self.timeout
+)
+```
+
+**개선된 명령어:**
+```python
+compile_result = subprocess.run(
+    ["javac", "-d", temp_dir, "-cp", temp_dir, "-sourcepath", temp_dir] + java_files,
+    capture_output=True,
+    text=True,
+    timeout=self.timeout
+)
+```
+
+**2. 추가 개선사항**
+- `-sourcepath temp_dir` 옵션 추가로 소스 파일 위치 명시
+- 패키지 구조가 있는 Java 파일들의 의존성 해결
+- 컴파일 오류 발생 시 더 구체적인 디버깅 정보 제공
+
+#### ✅ 예상 효과
+- `game.monster.Goblin` 클래스를 `game.Main`에서 정상적으로 import/사용 가능
+- 패키지 구조가 있는 Java 프로젝트 그룹 실행 성공
+
+---
+
+### B. 그룹 실행 결과를 마지막 셀에 출력
+
+#### 📁 수정 대상 파일
+- `src/javanotebook/static/js/jupyter_notebook.js`
+
+#### 🛠️ 수정 내용
+
+**1. displayGroupExecutionResult() 함수 수정**
+
+**기존 로직:**
+```javascript
+function displayGroupExecutionResult(groupId, result) {
+    // 첫 번째 셀에 커스텀 그룹 출력 생성
+    const firstCellId = groupInfo.cell_ids[0];
+    // ... 커스텀 group-output div 생성
 }
 ```
 
-### 2. 프론트엔드 (JavaScript) - 동적 셀 추가
-**파일**: `src/javanotebook/static/js/notebook.js`
+**개선된 로직:**
+```javascript
+function displayGroupExecutionResult(groupId, result) {
+    // 마지막 셀 찾기
+    const groupInfo = notebookState.projectGroups.get(groupId);
+    const lastCellId = groupInfo.cell_ids[groupInfo.cell_ids.length - 1];
 
-**구현 내용**:
-- `addNewCodeCell()` 메소드 추가
-  - 새로운 코드 셀 HTML 생성
-  - 고유한 셀 ID 할당
-  - CodeMirror 에디터 초기화
-- 셀 ID 관리 시스템 개선
-  - 동적 생성된 셀들의 고유 ID 보장
-- 이벤트 바인딩
-  - 새로운 셀의 실행/검증 버튼 기능 연결
+    // 표준 Jupyter 출력 함수 재사용
+    if (result.success) {
+        displayJupyterExecutionResult(lastCellId, result);
+    } else {
+        displayExecutionError(lastCellId, result.error_message || 'Group execution failed');
+    }
 
-### 3. 웹 인터페이스 (HTML/CSS) - UI 개선
-**파일**: 
-- `src/javanotebook/templates/notebook.html`
-- `src/javanotebook/static/css/style.css`
+    // 기존 커스텀 그룹 출력 제거
+    removeExistingGroupOutputs(groupId);
+}
+```
 
-**구현 내용**:
-- "코드 셀 추가" 버튼 추가
-- 새로운 UI 요소 스타일링
-- 반응형 디자인 고려
+**2. 오류 처리 개선**
+- 그룹 실행 실패 시에도 마지막 셀의 표준 출력 영역에 오류 표시
+- 컴파일 에러, 런타임 예외 모두 표준 Jupyter 오류 형식 적용
+- 표준출력(stdout), 표준에러(stderr) 모두 적절히 표시
 
-### 4. 선택적 백엔드 확장
-**파일**: `src/javanotebook/models.py` (필요시)
+**3. executeProjectGroup() 함수에서 에러 처리 추가**
+```javascript
+} catch (error) {
+    // 네트워크 오류나 기타 예외 발생 시에도 마지막 셀에 오류 표시
+    const groupInfo = notebookState.projectGroups.get(groupId);
+    if (groupInfo && groupInfo.cell_ids.length > 0) {
+        const lastCellId = groupInfo.cell_ids[groupInfo.cell_ids.length - 1];
+        displayExecutionError(lastCellId, userMessage);
+    }
 
-**구현 내용**:
-- 새로운 요청/응답 모델 (필요한 경우에만)
+    showNotification(userMessage, 'error');
+    return false;
+}
+```
 
-## 기술적 세부사항
+#### ✅ 예상 효과
+- 그룹 실행 결과가 마지막 셀 아래의 `Out[N]:` 영역에 표시
+- 단일 셀 실행과 동일한 UI/UX 일관성 제공
+- 성공/실패 모든 경우에 대해 표준 Jupyter 출력 형식 적용
+- 표준출력, 표준에러, 컴파일 오류 모두 올바른 형식으로 출력
 
-### 자동 main 메소드 래핑 로직
-1. **감지**: 정규식으로 `public static void main` 메소드 존재 확인
-2. **래핑**: 없으면 코드를 Main 클래스의 main 메소드 내부에 배치
-3. **예외 처리**: 이미 클래스 선언이 있는 경우 래핑하지 않음
+---
 
-### 동적 셀 추가 로직
-1. **HTML 생성**: 템플릿 기반으로 새로운 셀 HTML 구조 생성
-2. **DOM 삽입**: 기존 노트북에 새로운 셀 추가
-3. **에디터 초기화**: CodeMirror 인스턴스 생성 및 설정
-4. **이벤트 연결**: 실행/검증 버튼 기능 바인딩
+## 🎯 최종 사용자 경험 개선
 
-### 셀 ID 관리
-- 기존 셀: `cell-{counter}` 형식
-- 새로운 셀: `cell-new-{timestamp}` 형식으로 충돌 방지
+### Before (현재)
+```
+[코드셀 1: Goblin.java]
+[코드셀 2: Main.java]
+  ▶ 그룹 실행 (여기에 커스텀 출력)
+  그룹 실행 결과: 컴파일 에러 발생
+```
 
-## 구현 순서
-1. ✅ 계획 수립 및 PLAN.md 작성
-2. 🔄 자동 main 래핑 로직 구현 (executor.py)
-3. ⏳ 동적 셀 추가 기능 구현 (notebook.js)
-4. ⏳ UI 버튼 및 스타일 추가 (HTML/CSS)
-5. ⏳ 통합 테스트 및 디버깅
+### After (수정 후)
+```
+[코드셀 1: Goblin.java]
+[코드셀 2: Main.java]
+  In [1]: ...
+  Out[1]: 고블린이 공격합니다!  <- 표준 Jupyter 출력 형식
+```
 
-## 예상 이점
-- **빠른 프로토타이핑**: main 메소드 없이도 간단한 Java 코드 테스트 가능
-- **유연한 노트북**: 런타임에 코드 셀 추가로 더 동적인 학습 환경
-- **사용성 향상**: 반복적인 boilerplate 코드 작성 불필요
+### 오류 발생 시
+```
+[코드셀 1: Goblin.java]
+[코드셀 2: Main.java]
+  In [1]: ...
+  [빨간색 테두리 오류 출력]
+  CompilationError: cannot find symbol
+  상세 오류 내용...
+```
 
-## 주의사항
-- 자동 래핑 시 기존 import 문, 클래스 선언 등과의 충돌 방지
-- 동적 추가된 셀의 상태 관리 (실행 결과, 에러 표시 등)
-- 브라우저 호환성 고려 (CodeMirror 초기화)
+---
+
+## 📝 구현 순서
+
+1. **패키지 컴파일 수정** (`project_executor.py`)
+   - `-sourcepath` 옵션 추가
+   - 컴파일 명령어 개선
+
+2. **그룹 출력 위치 수정** (`jupyter_notebook.js`)
+   - `displayGroupExecutionResult()` 함수 수정
+   - 마지막 셀 찾기 로직 구현
+   - 표준 Jupyter 출력 함수 재사용
+
+3. **오류 처리 개선**
+   - 모든 오류 케이스에서 마지막 셀에 출력
+   - 표준 오류 형식 적용
+
+4. **테스트 및 검증**
+   - 패키지 구조가 있는 Java 코드로 테스트
+   - 성공/실패 케이스 모두 확인
+   - UI 일관성 검증
+
+---
+
+## 🚀 기대 효과
+
+- ✅ 패키지 구조가 있는 Java 프로젝트 그룹이 정상적으로 컴파일/실행됨
+- ✅ 그룹 실행 결과가 마지막 셀 아래에 표준 형식으로 출력됨
+- ✅ 단일 셀 실행과 그룹 실행의 UI/UX 일관성 확보
+- ✅ 모든 출력(성공, 실패, 컴파일 오류, 런타임 예외)이 동일한 형식으로 표시
+- ✅ 사용자가 직관적으로 결과를 확인할 수 있음

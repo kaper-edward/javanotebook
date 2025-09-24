@@ -101,6 +101,7 @@
                                     </button>
                                     <button class="btn btn-validate" onclick="validateJupyterCell('{{ cell.id }}')">검증</button>
                                     <button class="btn btn-delete" onclick="deleteCell('{{ cell.id }}')">삭제</button>
+                                    <button class="cell-connection-btn btn btn-sm" id="connect-btn-{{ cell.id }}" onclick="handleConnectionClick('{{ cell.id }}')" title="다른 셀과 연결">🔗</button>
                                 </div>
                             </div>
 
@@ -185,6 +186,9 @@
 
         // Cell data for JavaScript
         window.cellData = {{ cell_data_json | safe }};
+
+        // Notebook path for connection functionality
+        window.notebookPath = {{ notebook_path | tojson }};
 
         // AIDEV-NOTE: Debug information
         console.log('Notebook loaded with', window.cellData.length, 'cells');

@@ -103,6 +103,7 @@ def create_app(notebook_path: str = None, notebook_format: NotebookFormat = None
                         "request": request,
                         "notebook": notebook,
                         "notebook_filename": Path(app.state.notebook_path).name,
+                        "notebook_path": app.state.notebook_path,  # AIDEV-NOTE: Add notebook path for JavaScript
                         "total_cells": len(notebook.cells),
                         "code_cells": len(notebook.code_cells),
                         "markdown_cells": len(notebook.markdown_cells),

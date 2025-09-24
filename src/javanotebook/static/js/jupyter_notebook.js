@@ -9,12 +9,16 @@ let notebookState = {
     editors: new Map(),
     executionCount: 0,
     isExecuting: false,
-    kernelStatus: 'ready'
+    kernelStatus: 'ready',
+    projectGroups: new Map(),
+    currentNotebookPath: window.notebookPath || ''
 };
 
 // Initialize Jupyter notebook interface
-function initializeJupyterNotebook() {
+async function initializeJupyterNotebook() {
     console.log('Initializing Jupyter notebook interface...');
+    console.log('[DEBUG] Notebook path from window.notebookPath:', window.notebookPath);
+    console.log('[DEBUG] Current working directory:', notebookState.currentNotebookPath);
 
     // AIDEV-NOTE: Check if already initialized to prevent double initialization
     if (window.jupyterNotebookInitialized) {
@@ -39,6 +43,19 @@ function initializeJupyterNotebook() {
 
     // Setup cell management
     setupCellManagement();
+
+    // AIDEV-NOTE: Setup cell connection functionality
+    setupCellConnectionUI();
+
+    // Load project groups and update UI (always update UI even if loading fails)
+    try {
+        await loadProjectGroups();
+    } catch (error) {
+        console.error('[DEBUG] Failed to load project groups during initialization:', error);
+    } finally {
+        // Always update connection UI regardless of load success/failure
+        updateConnectionUI();
+    }
 
     // Update kernel status
     updateKernelStatus('ready');
@@ -297,6 +314,27 @@ async function executeJupyterCell(cellId) {
         return false;
     }
 
+    // AIDEV-NOTE: Check if cell is connected, if so, execute as group
+    const isConnected = isCellConnected(cellId);
+    console.log(`[DEBUG] executeJupyterCell - Cell ${cellId} connected: ${isConnected}`);
+
+    if (isConnected) {
+        // Find the group ID for this cell
+        let groupId = null;
+        for (const [gId, groupInfo] of notebookState.projectGroups) {
+            if (groupInfo.cell_ids.includes(cellId)) {
+                groupId = gId;
+                break;
+            }
+        }
+
+        if (groupId) {
+            console.log(`[DEBUG] Executing connected cell ${cellId} as group ${groupId}`);
+            showNotification('연결된 셀이므로 그룹으로 실행합니다.', 'info');
+            return await executeProjectGroup(groupId);
+        }
+    }
+
     const editor = notebookState.editors.get(cellId);
     const code = editor ? editor.getValue() : document.getElementById(`editor-${cellId}`).value;
 
@@ -304,6 +342,8 @@ async function executeJupyterCell(cellId) {
         showNotification('코드가 비어있습니다.', 'warning');
         return false;
     }
+
+    console.log(`[DEBUG] Executing individual cell ${cellId}`);
 
     // Update UI for execution
     setExecutingState(cellId, true);
@@ -939,6 +979,490 @@ function showNotification(message, type = 'info') {
             }, 300);
         }
     }, 3000);
+}
+
+// AIDEV-NOTE: Cell connection functionality
+function setupCellConnectionUI() {
+    console.log('Setting up cell connection UI...');
+
+    // Add connection buttons to all code cells
+    const codeCells = document.querySelectorAll('.code-cell');
+    codeCells.forEach(cell => {
+        const cellId = cell.getAttribute('data-cell-id');
+        if (cellId) {
+            addConnectionButton(cellId);
+        }
+    });
+}
+
+function addConnectionButton(cellId) {
+    // AIDEV-NOTE: Connection buttons are now added via HTML template
+    // This function just ensures the button has proper event handlers
+    const cell = document.querySelector(`[data-cell-id="${cellId}"]`);
+    if (!cell) return;
+
+    const connectBtn = cell.querySelector('.cell-connection-btn');
+    if (!connectBtn) {
+        console.warn(`Connection button not found for cell ${cellId}`);
+        return;
+    }
+
+    // Ensure proper onclick handler
+    connectBtn.onclick = () => handleConnectionClick(cellId);
+    console.log(`Connection button setup for cell ${cellId}`);
+}
+
+// AIDEV-NOTE: createCellToolbar function removed as toolbars are now in HTML template
+
+function handleConnectionClick(cellId) {
+    const btn = document.querySelector(`[data-cell-id="${cellId}"] .cell-connection-btn`);
+
+    // Check if button is disabled
+    if (btn && btn.disabled) {
+        console.log(`[DEBUG] Connection button for ${cellId} is disabled, ignoring click`);
+        showNotification('연결할 수 있는 인접한 코드 셀이 없습니다.', 'warning');
+        return;
+    }
+
+    const isConnected = isCellConnected(cellId);
+    console.log(`[DEBUG] handleConnectionClick - Cell ${cellId} currently connected: ${isConnected}`);
+
+    if (isConnected) {
+        // If already connected, disconnect
+        console.log(`[DEBUG] Disconnecting cell ${cellId}`);
+        disconnectCell(cellId);
+    } else {
+        // If not connected, connect to the next code cell
+        console.log(`[DEBUG] Connecting cell ${cellId} to next cell`);
+        connectToNextCell(cellId);
+    }
+}
+
+function connectToNextCell(cellId) {
+    const nextCellId = getNextAdjacentCodeCellId(cellId);
+
+    if (nextCellId) {
+        console.log(`[DEBUG] Connecting ${cellId} to adjacent cell ${nextCellId}`);
+        connectCells(cellId, nextCellId);
+    } else {
+        console.log(`[DEBUG] No adjacent code cell to connect to`);
+        showNotification('연결할 수 있는 인접한 코드 셀이 없습니다.', 'warning');
+    }
+}
+
+function getNextCodeCellId(currentCellId) {
+    // AIDEV-NOTE: This function is kept for backward compatibility
+    // Use getNextAdjacentCodeCellId for connection logic
+    const codeCells = document.querySelectorAll('.code-cell');
+    let foundCurrent = false;
+
+    for (const cell of codeCells) {
+        const cellId = cell.getAttribute('data-cell-id');
+
+        if (foundCurrent && cellId) {
+            return cellId;
+        }
+
+        if (cellId === currentCellId) {
+            foundCurrent = true;
+        }
+    }
+
+    return null;
+}
+
+function getNextAdjacentCodeCellId(currentCellId) {
+    // AIDEV-NOTE: Find only adjacent code cells (no markdown cells in between)
+    const allCells = document.querySelectorAll('.jupyter-cell');
+    let foundCurrent = false;
+
+    console.log(`[DEBUG] Looking for adjacent code cell after ${currentCellId}`);
+
+    for (const cell of allCells) {
+        const cellId = cell.getAttribute('data-cell-id');
+        const cellType = cell.getAttribute('data-cell-type');
+
+        if (foundCurrent) {
+            console.log(`[DEBUG] Next cell: ${cellId} (type: ${cellType})`);
+
+            if (cellType === 'code') {
+                console.log(`[DEBUG] Found adjacent code cell: ${cellId}`);
+                return cellId;
+            } else {
+                // If we encounter a non-code cell, stop searching
+                console.log(`[DEBUG] Non-code cell found, stopping search`);
+                return null;
+            }
+        }
+
+        if (cellId === currentCellId) {
+            console.log(`[DEBUG] Found current cell: ${currentCellId}`);
+            foundCurrent = true;
+        }
+    }
+
+    console.log(`[DEBUG] No adjacent code cell found`);
+    return null;
+}
+
+function isCellConnected(cellId) {
+    // Check if cell is part of any project group
+    for (const [groupId, groupInfo] of notebookState.projectGroups) {
+        if (groupInfo.cell_ids.includes(cellId)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// AIDEV-NOTE: Removed complex connection dialog - now using simple auto-connect to next cell
+
+async function connectCells(cellId1, cellId2) {
+    try {
+        showNotification('셀 연결 중...', 'info');
+
+        const response = await fetch('/api/v1/jupyter/cells/connect', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                cell_id1: cellId1,
+                cell_id2: cellId2,
+                notebook_path: notebookState.currentNotebookPath
+            })
+        });
+
+        const result = await response.json();
+
+        if (response.ok && result.success) {
+            showNotification('셀이 성공적으로 연결되었습니다!', 'success');
+            await loadProjectGroups();
+            updateConnectionUI();
+        } else {
+            throw new Error(result.detail || 'Connection failed');
+        }
+    } catch (error) {
+        console.error('Connection error:', error);
+        showNotification('셀 연결 중 오류가 발생했습니다: ' + error.message, 'error');
+    }
+}
+
+// AIDEV-NOTE: Removed disconnect dialog - direct disconnection for better UX
+
+async function disconnectCell(cellId) {
+    try {
+        showNotification('셀 연결 해제 중...', 'info');
+
+        const response = await fetch('/api/v1/jupyter/cells/disconnect', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                cell_id: cellId,
+                notebook_path: notebookState.currentNotebookPath
+            })
+        });
+
+        const result = await response.json();
+
+        if (response.ok && result.success) {
+            showNotification('셀 연결이 해제되었습니다.', 'success');
+            await loadProjectGroups();
+            updateConnectionUI();
+        } else {
+            throw new Error(result.detail || 'Disconnection failed');
+        }
+    } catch (error) {
+        console.error('Disconnection error:', error);
+        showNotification('셀 연결 해제 중 오류가 발생했습니다: ' + error.message, 'error');
+    }
+}
+
+// AIDEV-NOTE: closeConnectionModal function removed - no longer needed with simplified UX
+
+async function loadProjectGroups() {
+    try {
+        console.log('[DEBUG] Loading project groups...');
+
+        if (!notebookState.currentNotebookPath) {
+            console.warn('[DEBUG] No notebook path available, skipping project groups loading');
+            return;
+        }
+
+        const encodedPath = encodeURIComponent(notebookState.currentNotebookPath);
+        console.log(`[DEBUG] Fetching groups for path: ${encodedPath}`);
+
+        const response = await fetch(`/api/v1/jupyter/groups/${encodedPath}`);
+        console.log(`[DEBUG] Groups API response status: ${response.status}`);
+
+        if (response.ok) {
+            const result = await response.json();
+            console.log('[DEBUG] Groups API result:', result);
+
+            notebookState.projectGroups.clear();
+
+            if (result.groups && Object.keys(result.groups).length > 0) {
+                Object.entries(result.groups).forEach(([groupId, groupInfo]) => {
+                    notebookState.projectGroups.set(groupId, groupInfo);
+                });
+                console.log(`[DEBUG] Loaded ${notebookState.projectGroups.size} project groups:`, notebookState.projectGroups);
+            } else {
+                console.log('[DEBUG] No project groups found');
+            }
+        } else {
+            const errorResult = await response.json().catch(() => ({ detail: 'Unknown error' }));
+            console.error(`[DEBUG] Failed to load project groups: ${response.status} - ${errorResult.detail}`);
+        }
+    } catch (error) {
+        console.error('[DEBUG] Error loading project groups:', error);
+        console.error('[DEBUG] Error details:', {
+            name: error.name,
+            message: error.message,
+            stack: error.stack
+        });
+    }
+}
+
+function updateConnectionUI() {
+    console.log('[DEBUG] Updating connection UI...');
+    console.log('[DEBUG] Current project groups:', notebookState.projectGroups);
+
+    // Update connection button appearance
+    document.querySelectorAll('.code-cell').forEach(cell => {
+        const cellId = cell.getAttribute('data-cell-id');
+        const btn = cell.querySelector('.cell-connection-btn');
+
+        if (btn && cellId) {
+            const isConnected = isCellConnected(cellId);
+            const hasAdjacentCodeCell = getNextAdjacentCodeCellId(cellId) !== null;
+
+            console.log(`[DEBUG] Cell ${cellId} - connected: ${isConnected}, hasAdjacent: ${hasAdjacentCodeCell}`);
+
+            if (isConnected) {
+                // Cell is connected, show disconnect option
+                btn.innerHTML = '🔓';
+                btn.title = '연결 해제';
+                btn.classList.add('connected');
+                btn.classList.remove('disabled');
+                btn.disabled = false;
+            } else if (hasAdjacentCodeCell) {
+                // Cell is not connected but has adjacent code cell, show connect option
+                btn.innerHTML = '🔗';
+                btn.title = '다음 코드 셀과 연결';
+                btn.classList.remove('connected', 'disabled');
+                btn.disabled = false;
+            } else {
+                // Cell has no adjacent code cell, disable button
+                btn.innerHTML = '🔗';
+                btn.title = '연결할 수 있는 인접한 코드 셀이 없습니다';
+                btn.classList.remove('connected');
+                btn.classList.add('disabled');
+                btn.disabled = true;
+            }
+        }
+    });
+
+    // Update visual grouping
+    updateVisualGrouping();
+}
+
+function updateVisualGrouping() {
+    // Remove existing group visuals and execute buttons
+    document.querySelectorAll('.cell-group').forEach(el => el.classList.remove('cell-group'));
+    document.querySelectorAll('.group-execute-btn').forEach(btn => btn.remove());
+
+    // Add group visuals for connected cells
+    for (const [groupId, groupInfo] of notebookState.projectGroups) {
+        groupInfo.cell_ids.forEach((cellId, index) => {
+            const cell = document.querySelector(`[data-cell-id="${cellId}"]`);
+            if (cell) {
+                cell.classList.add('cell-group');
+                cell.style.setProperty('--group-id', `"${groupId.substring(0, 8)}"`);
+
+                // Add group execute button to the first cell of the group
+                if (index === 0) {
+                    addGroupExecuteButton(cell, groupId);
+                }
+            }
+        });
+    }
+}
+
+function addGroupExecuteButton(cell, groupId) {
+    // Check if button already exists
+    if (cell.querySelector('.group-execute-btn')) return;
+
+    const executeBtn = document.createElement('button');
+    executeBtn.className = 'group-execute-btn';
+    executeBtn.innerHTML = '▶ 그룹 실행';
+    executeBtn.title = '연결된 모든 셀을 프로젝트로 실행';
+    executeBtn.onclick = () => executeProjectGroup(groupId);
+
+    // Insert button before the cell content
+    const cellContent = cell.querySelector('.cell-content') || cell;
+    cellContent.parentNode.insertBefore(executeBtn, cellContent);
+}
+
+async function executeProjectGroup(groupId) {
+    try {
+        console.log(`[DEBUG] executeProjectGroup - Starting execution for group ${groupId}`);
+        console.log(`[DEBUG] Notebook path: ${notebookState.currentNotebookPath}`);
+
+        showNotification('프로젝트 그룹 실행 중...', 'info');
+
+        const requestBody = {
+            group_id: groupId,
+            notebook_path: notebookState.currentNotebookPath
+        };
+        console.log(`[DEBUG] Request body:`, requestBody);
+
+        const response = await fetch('/api/v1/jupyter/groups/execute', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestBody)
+        });
+
+        console.log(`[DEBUG] Response status: ${response.status}`);
+        const result = await response.json();
+        console.log(`[DEBUG] Response result:`, result);
+
+        if (response.ok && result.success) {
+            showNotification('프로젝트 그룹이 성공적으로 실행되었습니다!', 'success');
+
+            // Display execution results
+            displayGroupExecutionResult(groupId, result);
+            return true;
+        } else {
+            // Handle different types of errors
+            let errorMessage = 'Group execution failed';
+            let detailedMessage = '';
+
+            if (result.detail) {
+                errorMessage = result.detail;
+            }
+
+            if (result.error_message) {
+                detailedMessage = result.error_message;
+            }
+
+            // Show compilation or execution errors if available
+            if (result.outputs && result.outputs.length > 0) {
+                const errorOutputs = result.outputs.filter(output => output.output_type === 'error');
+                if (errorOutputs.length > 0) {
+                    detailedMessage = errorOutputs.map(err => `${err.ename}: ${err.evalue}`).join('\n');
+                }
+            }
+
+            const fullErrorMessage = detailedMessage
+                ? `${errorMessage}\n\n상세 정보:\n${detailedMessage}`
+                : errorMessage;
+
+            console.error('[DEBUG] Group execution failed:', {
+                status: response.status,
+                errorMessage,
+                detailedMessage,
+                fullResult: result
+            });
+
+            // AIDEV-NOTE: Display server error in last cell using standard format
+            displayGroupExecutionResult(groupId, {
+                success: false,
+                error_message: fullErrorMessage,
+                outputs: result.outputs || []
+            });
+
+            throw new Error(fullErrorMessage);
+        }
+    } catch (error) {
+        console.error('[DEBUG] Group execution error:', error);
+
+        let userMessage = '프로젝트 그룹 실행 중 오류가 발생했습니다.';
+
+        if (error instanceof TypeError && error.message.includes('fetch')) {
+            userMessage = '네트워크 연결 오류가 발생했습니다. 서버가 실행 중인지 확인해주세요.';
+        } else if (error.name === 'AbortError') {
+            userMessage = '요청이 취소되었습니다.';
+        } else if (error.message) {
+            userMessage = error.message;
+        }
+
+        console.error('[DEBUG] Detailed error info:', {
+            name: error.name,
+            message: error.message,
+            stack: error.stack
+        });
+
+        // AIDEV-NOTE: Display error in last cell using standard Jupyter format
+        const groupInfo = notebookState.projectGroups.get(groupId);
+        if (groupInfo && groupInfo.cell_ids.length > 0) {
+            const lastCellId = groupInfo.cell_ids[groupInfo.cell_ids.length - 1];
+            displayExecutionError(lastCellId, userMessage);
+        }
+
+        showNotification(userMessage, 'error');
+        return false;
+    }
+}
+
+function displayGroupExecutionResult(groupId, result) {
+    // AIDEV-NOTE: Display group execution result in last cell using standard Jupyter format
+    // Find the last cell in the group
+    const groupInfo = notebookState.projectGroups.get(groupId);
+    if (!groupInfo || !groupInfo.cell_ids.length) return;
+
+    const lastCellId = groupInfo.cell_ids[groupInfo.cell_ids.length - 1];
+
+    // Remove existing custom group outputs from all cells in the group
+    removeExistingGroupOutputs(groupId);
+
+    // AIDEV-NOTE: Use standard Jupyter output functions for consistency
+    if (result.success) {
+        displayJupyterExecutionResult(lastCellId, result);
+    } else {
+        displayExecutionError(lastCellId, result.error_message || 'Group execution failed');
+    }
+}
+
+function removeExistingGroupOutputs(groupId) {
+    // AIDEV-NOTE: Remove existing custom group outputs from all cells in the group
+    const groupInfo = notebookState.projectGroups.get(groupId);
+    if (!groupInfo) return;
+
+    groupInfo.cell_ids.forEach(cellId => {
+        const cell = document.querySelector(`[data-cell-id="${cellId}"]`);
+        if (cell) {
+            const existingOutput = cell.querySelector('.group-output');
+            if (existingOutput) {
+                existingOutput.remove();
+            }
+        }
+    });
+}
+
+function formatExecutionOutput(outputs) {
+    if (!outputs || !outputs.length) {
+        return '<div class="output-empty">실행 결과가 없습니다.</div>';
+    }
+
+    let html = '';
+    outputs.forEach(output => {
+        if (output.output_type === 'stream') {
+            const className = output.name === 'stderr' ? 'output-stderr' : 'output-stdout';
+            html += `<div class="${className}">${escapeHtml(output.text)}</div>`;
+        } else if (output.output_type === 'error') {
+            html += `<div class="output-error">
+                <div class="error-name">${output.ename}</div>
+                <div class="error-value">${escapeHtml(output.evalue)}</div>
+                ${output.traceback ? `<div class="error-traceback">${output.traceback.map(line => escapeHtml(line)).join('<br>')}</div>` : ''}
+            </div>`;
+        }
+    });
+
+    return html || '<div class="output-empty">실행 결과가 없습니다.</div>';
 }
 
 // // Initialize when DOM is loaded (2중으로 코드 셀이 로딩됨)
