@@ -19,6 +19,8 @@ Java Notebook (jvnb)은 Java 코드를 Jupyter 스타일의 노트북 환경에�
 - 🔍 **구조화된 에러**: 컴파일/런타임 오류의 상세한 표시
 - 🚀 **자동 main 래핑**: main 메소드 없는 간단한 코드도 즉시 실행
 - 📤 **완전한 출력**: stdout과 stderr 모두 실행 결과에 표시
+- 🆕 **프로젝트 그룹 실행**: 여러 셀을 연결하여 하나의 Java 프로젝트로 실행
+- 🆕 **패키지 구조 지원**: Java 패키지와 import 문을 이용한 모듈화 프로그래밍
 
 ### 📝 **마크다운 형식 전용**
 - 🎨 **서버사이드 렌더링**: Python markdown + Pygments로 구문 강조
@@ -189,8 +191,45 @@ python -m javanotebook examples/algorithms.ipynb --port 8080 --debug
 
 #### 📤 완전한 출력 표시
 - `System.out.println()` (표준 출력)
-- `System.err.println()` (표준 에러) 
+- `System.err.println()` (표준 에러)
 - 모든 출력이 "실행 결과"에 함께 표시됩니다
+
+#### 🆕 프로젝트 그룹 실행 (NEW!)
+- **셀 연결**: 각 코드 셀의 🔗 버튼을 클릭하여 인접한 셀과 연결
+- **그룹 실행**: 연결된 셀들이 하나의 Java 프로젝트로 함께 컴파일 및 실행
+- **패키지 지원**: 각 셀에서 `package` 선언과 `import` 문 사용 가능
+- **결과 표시**: 그룹 실행 결과는 마지막 셀에 표준 Jupyter 형식으로 표시
+
+**사용 예제:**
+```java
+// 첫 번째 셀 (Goblin.java)
+package game.monster;
+
+public class Goblin {
+    public void attack() {
+        System.out.println("고블린이 공격합니다!");
+    }
+}
+```
+
+```java
+// 두 번째 셀 (Main.java) - 첫 번째 셀과 연결
+package game;
+
+import game.monster.Goblin;
+
+public class Main {
+    public static void main(String[] args) {
+        Goblin goblin = new Goblin();
+        goblin.attack();
+    }
+}
+```
+
+#### 🎯 사용자 친화적 오류 메시지
+- ❌ **컴파일 오류**: "클래스를 찾을 수 없습니다. import 문을 확인하세요."
+- 📦 **패키지 오류**: "패키지가 존재하지 않습니다. package 선언을 확인하세요."
+- 🔧 **타입 오류**: "타입이 맞지 않습니다. 변수 타입과 값을 확인하세요."
 
 ### 5. 키보드 단축키
 
@@ -325,9 +364,9 @@ Java Notebook은 다음과 같은 구조로 작동합니다:
 ## 🚨 제한사항
 
 - ~~각 Java 코드 셀은 독립적인 `public static void main` 메소드를 포함해야 합니다~~ ✅ **해결됨**: 간단한 코드는 자동 래핑 지원
-- 셀 간 변수나 상태 공유는 지원되지 않습니다
+- ~~현재 단일 파일 Java 프로그램만 지원됩니다~~ ✅ **해결됨**: 프로젝트 그룹 실행으로 다중 파일 지원
 - JDK가 시스템에 설치되어 있어야 합니다
-- 현재 단일 파일 Java 프로그램만 지원됩니다
+- 셀 간 변수나 상태 공유는 지원되지 않습니다 (단, 패키지를 통한 클래스 공유는 가능)
 
 ## 🛣 로드맵
 
@@ -346,10 +385,14 @@ Java Notebook은 다음과 같은 구조로 작동합니다:
 - [x] **NEW (2025-09-17)**: 듀얼 포맷 자동 감지 및 렌더링
 - [x] **NEW (2025-09-17)**: 표준 Jupyter UI (In[]/Out[] 프롬프트, execution_count)
 - [x] **NEW (2025-09-17)**: 클라이언트사이드 마크다운 렌더링 (marked.js)
+- [x] **🆕 NEW (2025-09-25)**: 프로젝트 그룹 실행 (셀 연결 기능)
+- [x] **🆕 NEW (2025-09-25)**: Java 패키지 구조 완전 지원
+- [x] **🆕 NEW (2025-09-25)**: 사용자 친화적 한국어 오류 메시지
+- [x] **🆕 NEW (2025-09-25)**: 향상된 UI 피드백 (실행 상태 표시)
 
 ### 향후 계획 📋
-- [ ] 멀티파일 Java 프로젝트 지원
-- [ ] 외부 라이브러리 import 지원  
+- [x] ~~멀티파일 Java 프로젝트 지원~~ ✅ **완료됨** (프로젝트 그룹 실행)
+- [ ] 외부 라이브러리 import 지원
 - [ ] 셀 간 변수 공유 기능 (JShell 활용)
 - [ ] 실행 결과 시각화 도구
 - [ ] WebSocket 기반 실시간 통신
@@ -357,6 +400,8 @@ Java Notebook은 다음과 같은 구조로 작동합니다:
 - [ ] Docker 기반 Java 환경 지원
 - [ ] 셀 재정렬 및 마크다운 셀 편집 기능
 - [ ] 코드 자동완성 및 IntelliSense 지원
+- [ ] 더 많은 사용자 친화적 오류 패턴 추가
+- [ ] 실행 성능 최적화 (병렬 컴파일)
 
 ## 🤝 기여하기
 

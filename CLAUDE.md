@@ -1,5 +1,5 @@
 # CLAUDE.md - Java Notebook (jvnb)
-*Last updated 2025-09-17*
+*Last updated 2025-09-25*
 
 > **purpose** – This file is the onboarding manual for every AI assistant (Claude, Cursor, GPT, etc.) and every human who edits this repository.
 > It encodes our coding standards, guard-rails, and workflow tricks for the Java Jupyter-style notebook project.
@@ -169,6 +169,7 @@ def compile_and_run_java(java_code: str) -> dict:
 | `├── nb_parser.py`      | **NEW**: Jupyter notebook parser (nbformat)     |
 | `├── executor.py`       | Java code compilation and execution (markdown)  |
 | `├── nb_executor.py`    | **NEW**: Jupyter-compatible Java executor       |
+| `├── project_executor.py` | **NEW**: Multi-cell project group execution  |
 | `├── models.py`         | Pydantic models for markdown format             |
 | `├── nb_models.py`      | **NEW**: Jupyter notebook models (nbformat)     |
 | `├── format_detector.py`| **NEW**: File format detection (.md vs .ipynb) |
@@ -205,7 +206,7 @@ def compile_and_run_java(java_code: str) -> dict:
 - **JupyterExecutionResult**: Jupyter-compatible execution results
 - **JupyterOutput**: Standard Jupyter output types (stream, error, execute_result)
 
-**Latest Features (2025-09-17)**:
+**Latest Features (2025-09-25)**:
 - **Dual Format Support**: Complete .md and .ipynb format support with separate interfaces
 - **Format Auto-Detection**: Automatic detection based on file extension and content
 - **Jupyter Standard Compliance**: Full nbformat library integration
@@ -213,6 +214,10 @@ def compile_and_run_java(java_code: str) -> dict:
 - **Standard Jupyter UI**: In[]/Out[] prompts, execution_count management
 - **Keyboard Shortcuts**: Standard Jupyter shortcuts (Shift+Enter, Ctrl+Enter, etc.)
 - **Template Separation**: Dedicated templates and assets for each format
+- **🆕 Project Group Execution**: Connect multiple cells to execute as a single Java project
+- **🆕 Package Structure Support**: Full support for Java packages with proper compilation
+- **🆕 User-Friendly Error Messages**: Intuitive Korean error messages with emojis
+- **🆕 Enhanced UI Feedback**: Real-time execution status for all connected cells
 
 ---
 
@@ -409,6 +414,9 @@ javanotebook/
 *   **Auto-wrapping**: Automatic wrapping of simple statements with Main class
 *   **Orchestration**: Python managing Java compilation and execution workflow
 *   **Dual Output**: Display of both stdout and stderr in execution results
+*   **🆕 Project Group**: Multiple connected cells that execute together as a single Java project
+*   **🆕 Cell Connection**: Linking adjacent code cells to form a project group
+*   **🆕 Package Support**: Java package structure with proper import/export between cells
 
 ---
 

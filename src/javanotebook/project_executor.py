@@ -286,29 +286,57 @@ class ProjectExecutor:
 
     def _parse_compilation_error(self, error_output: str) -> List[str]:
         """
-        Parse compilation error output into traceback lines.
+        Parse compilation error output into user-friendly traceback lines.
 
         Args:
             error_output: Compiler error output
 
         Returns:
-            List of formatted error lines
+            List of user-friendly error messages
         """
         if not error_output:
             return []
 
         lines = error_output.strip().split('\n')
-        traceback = []
+        user_friendly_errors = []
 
         for line in lines:
-            if line.strip():
-                # AIDEV-NOTE: Clean up error messages
-                cleaned_line = line.strip()
+            line = line.strip()
+            if not line:
+                continue
+
+            # AIDEV-NOTE: Convert technical errors to user-friendly messages
+            if 'cannot find symbol' in line.lower():
+                if 'class' in line.lower():
+                    user_friendly_errors.append("❌ 클래스를 찾을 수 없습니다. import 문이나 패키지 선언을 확인하세요.")
+                elif 'method' in line.lower():
+                    user_friendly_errors.append("❌ 메서드를 찾을 수 없습니다. 메서드 이름과 매개변수를 확인하세요.")
+                else:
+                    user_friendly_errors.append("❌ 변수나 식별자를 찾을 수 없습니다. 철자와 선언을 확인하세요.")
+
+            elif 'package does not exist' in line.lower():
+                user_friendly_errors.append("📦 패키지가 존재하지 않습니다. package 선언과 폴더 구조를 확인하세요.")
+
+            elif 'duplicate class' in line.lower():
+                user_friendly_errors.append("🔄 동일한 이름의 클래스가 중복됩니다. 클래스 이름을 변경하세요.")
+
+            elif 'illegal start of expression' in line.lower():
+                user_friendly_errors.append("⚠️ 잘못된 문법입니다. 중괄호 { } 나 세미콜론 ; 을 확인하세요.")
+
+            elif 'incompatible types' in line.lower():
+                user_friendly_errors.append("🔧 타입이 맞지 않습니다. 변수 타입과 값의 타입을 확인하세요.")
+
+            elif 'unreachable statement' in line.lower():
+                user_friendly_errors.append("🚫 도달할 수 없는 코드입니다. return 문 이후의 코드를 확인하세요.")
+
+            else:
+                # AIDEV-NOTE: For unrecognized errors, clean up but keep original message
+                cleaned_line = line
                 if cleaned_line.startswith('error:'):
                     cleaned_line = cleaned_line[6:].strip()
-                traceback.append(cleaned_line)
+                user_friendly_errors.append(f"⚡ {cleaned_line}")
 
-        return traceback
+        return user_friendly_errors if user_friendly_errors else ["❓ 컴파일 중 알 수 없는 오류가 발생했습니다."]
 
     def _create_error_output(self, error_name: str, error_message: str,
                            traceback: List[str]) -> JupyterError:

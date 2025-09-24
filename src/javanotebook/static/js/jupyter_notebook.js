@@ -1310,6 +1310,18 @@ async function executeProjectGroup(groupId) {
         console.log(`[DEBUG] executeProjectGroup - Starting execution for group ${groupId}`);
         console.log(`[DEBUG] Notebook path: ${notebookState.currentNotebookPath}`);
 
+        const groupInfo = notebookState.projectGroups.get(groupId);
+        if (!groupInfo || !groupInfo.cell_ids.length) {
+            console.error('[DEBUG] Group not found or empty:', groupId);
+            showNotification('그룹을 찾을 수 없습니다.', 'error');
+            return false;
+        }
+
+        // AIDEV-NOTE: Set executing state for all cells in the group
+        groupInfo.cell_ids.forEach(cellId => {
+            setExecutingState(cellId, true);
+        });
+
         showNotification('프로젝트 그룹 실행 중...', 'info');
 
         const requestBody = {
@@ -1332,6 +1344,11 @@ async function executeProjectGroup(groupId) {
 
         if (response.ok && result.success) {
             showNotification('프로젝트 그룹이 성공적으로 실행되었습니다!', 'success');
+
+            // AIDEV-NOTE: Clear executing state for all cells on success
+            groupInfo.cell_ids.forEach(cellId => {
+                setExecutingState(cellId, false);
+            });
 
             // Display execution results
             displayGroupExecutionResult(groupId, result);
@@ -1368,6 +1385,11 @@ async function executeProjectGroup(groupId) {
                 fullResult: result
             });
 
+            // AIDEV-NOTE: Clear executing state for all cells on server error
+            groupInfo.cell_ids.forEach(cellId => {
+                setExecutingState(cellId, false);
+            });
+
             // AIDEV-NOTE: Display server error in last cell using standard format
             displayGroupExecutionResult(groupId, {
                 success: false,
@@ -1396,9 +1418,15 @@ async function executeProjectGroup(groupId) {
             stack: error.stack
         });
 
-        // AIDEV-NOTE: Display error in last cell using standard Jupyter format
+        // AIDEV-NOTE: Clear executing state for all cells on catch error
         const groupInfo = notebookState.projectGroups.get(groupId);
         if (groupInfo && groupInfo.cell_ids.length > 0) {
+            // Clear executing state for all cells
+            groupInfo.cell_ids.forEach(cellId => {
+                setExecutingState(cellId, false);
+            });
+
+            // Display error in last cell using standard Jupyter format
             const lastCellId = groupInfo.cell_ids[groupInfo.cell_ids.length - 1];
             displayExecutionError(lastCellId, userMessage);
         }
@@ -1414,17 +1442,29 @@ function displayGroupExecutionResult(groupId, result) {
     const groupInfo = notebookState.projectGroups.get(groupId);
     if (!groupInfo || !groupInfo.cell_ids.length) return;
 
+    // AIDEV-NOTE: Increment execution count like individual cell execution
+    notebookState.executionCount++;
+
     const lastCellId = groupInfo.cell_ids[groupInfo.cell_ids.length - 1];
 
     // Remove existing custom group outputs from all cells in the group
     removeExistingGroupOutputs(groupId);
 
-    // AIDEV-NOTE: Use standard Jupyter output functions for consistency
+    // AIDEV-NOTE: Create standardized result object with execution count
+    const standardResult = {
+        ...result,
+        execution_count: notebookState.executionCount
+    };
+
+    // AIDEV-NOTE: Use standard Jupyter output functions for complete consistency
     if (result.success) {
-        displayJupyterExecutionResult(lastCellId, result);
+        displayJupyterExecutionResult(lastCellId, standardResult);
     } else {
         displayExecutionError(lastCellId, result.error_message || 'Group execution failed');
     }
+
+    // AIDEV-NOTE: Update input prompt for the last cell to show execution count
+    updateInputPrompt(lastCellId, notebookState.executionCount);
 }
 
 function removeExistingGroupOutputs(groupId) {
@@ -1463,6 +1503,14 @@ function formatExecutionOutput(outputs) {
     });
 
     return html || '<div class="output-empty">실행 결과가 없습니다.</div>';
+}
+
+// AIDEV-NOTE: Helper function to update input prompt with execution count
+function updateInputPrompt(cellId, executionCount) {
+    const inputPrompt = document.querySelector(`[data-cell-id="${cellId}"] .input-prompt`);
+    if (inputPrompt) {
+        inputPrompt.textContent = `In [${executionCount}]:`;
+    }
 }
 
 // // Initialize when DOM is loaded (2중으로 코드 셀이 로딩됨)
