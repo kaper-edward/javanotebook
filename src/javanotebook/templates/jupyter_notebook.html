@@ -130,8 +130,16 @@
                         </div>
                     </div>
 
-                    <div class="raw-cell-content">
-                        <pre class="raw-content">{% if cell.source is string %}{{ cell.source }}{% else %}{{ cell.source | join }}{% endif %}</pre>
+                    <div class="raw-cell-content" id="raw-content-{{ cell.id }}">
+                        <pre class="raw-display">{% if cell.source is string %}{{ cell.source }}{% else %}{{ cell.source | join }}{% endif %}</pre>
+                    </div>
+
+                    <div class="raw-cell-editor" id="raw-editor-{{ cell.id }}" style="display: none;">
+                        <textarea class="raw-source" id="raw-source-{{ cell.id }}" placeholder="Raw cell content...">{% if cell.source is string %}{{ cell.source }}{% else %}{{ cell.source | join }}{% endif %}</textarea>
+                        <div class="editor-actions">
+                            <button class="btn btn-save-raw" onclick="saveRawCell('{{ cell.id }}')">저장</button>
+                            <button class="btn btn-cancel" onclick="cancelRawEdit('{{ cell.id }}')">취소</button>
+                        </div>
                     </div>
 
                     {% endif %}

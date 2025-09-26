@@ -126,3 +126,36 @@ class NotebookParser:
             return self.has_main_method(java_code)
         except ParseError:
             return False
+
+    def extract_package_name(self, java_code: str) -> str:
+        """Extract package name from Java code."""
+        # AIDEV-NOTE: Find package declaration at the start of the file
+        package_match = re.search(r'^\s*package\s+([\w.]+)\s*;', java_code, re.MULTILINE)
+        if package_match:
+            return package_match.group(1)
+        return ""  # Default package (no package declaration)
+
+    def get_full_class_name(self, java_code: str) -> str:
+        """Get full class name including package."""
+        package_name = self.extract_package_name(java_code)
+        class_name = self.extract_class_name(java_code)
+
+        if package_name:
+            return f"{package_name}.{class_name}"
+        return class_name
+
+    def get_package_path(self, package_name: str) -> str:
+        """Convert package name to directory path."""
+        if not package_name:
+            return ""
+        return package_name.replace('.', '/')
+
+    def extract_imports(self, java_code: str) -> List[str]:
+        """Extract all import statements from Java code."""
+        # AIDEV-NOTE: Find all import declarations
+        import_matches = re.findall(r'^\s*import\s+([\w.*]+)\s*;', java_code, re.MULTILINE)
+        return import_matches
+
+    def has_package_declaration(self, java_code: str) -> bool:
+        """Check if Java code has a package declaration."""
+        return bool(re.search(r'^\s*package\s+[\w.]+\s*;', java_code, re.MULTILINE))

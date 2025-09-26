@@ -12,6 +12,8 @@ from .nb_models import (
     JupyterStream, JupyterError, JupyterExecuteResult
 )
 from .exceptions import CompilationError, ExecutionError, JavaNotFoundError
+from .package_manager import PackageManager
+from .parser import NotebookParser
 
 
 class JupyterJavaExecutor:
@@ -26,6 +28,8 @@ class JupyterJavaExecutor:
         """
         self.timeout = timeout
         self.execution_count = 0
+        self.package_manager = PackageManager(timeout)
+        self.parser = NotebookParser()
         self._verify_java_installation()
 
     def _verify_java_installation(self) -> None:
@@ -63,6 +67,125 @@ class JupyterJavaExecutor:
             # AIDEV-NOTE: Prepare code (auto-wrap if needed)
             processed_code = self._prepare_code(request.code)
 
+            # AIDEV-NOTE: Check if code has package declaration
+            has_package = self.parser.has_package_declaration(processed_code)
+
+            if has_package:
+                # AIDEV-NOTE: Use PackageManager for code with packages
+                return self._execute_with_package_support([processed_code], start_time)
+            else:
+                # AIDEV-NOTE: Use legacy method for simple code without packages
+                return self._execute_single_class_jupyter(processed_code, start_time)
+
+        except Exception as e:
+            return JupyterExecutionResult(
+                success=False,
+                execution_count=self.execution_count,
+                outputs=[self._create_error_output(
+                    type(e).__name__,
+                    str(e),
+                    []
+                )],
+                execution_time=time.time() - start_time,
+                error_message=str(e)
+            )
+
+    def execute_multiple_codes(self, java_codes: list[str]) -> JupyterExecutionResult:
+        """Execute multiple Java code cells with package support."""
+        start_time = time.time()
+
+        # AIDEV-NOTE: Increment execution count for this session
+        self.execution_count += 1
+
+        try:
+            # AIDEV-NOTE: Prepare each code (auto-wrap if needed)
+            processed_codes = [self._prepare_code(code) for code in java_codes if code.strip()]
+
+            if not processed_codes:
+                return JupyterExecutionResult(
+                    success=False,
+                    execution_count=self.execution_count,
+                    outputs=[self._create_error_output(
+                        "ValueError",
+                        "No valid Java code provided",
+                        []
+                    )],
+                    execution_time=time.time() - start_time,
+                    error_message="No valid Java code provided"
+                )
+
+            # AIDEV-NOTE: Use PackageManager for multiple classes
+            return self._execute_with_package_support(processed_codes, start_time)
+
+        except Exception as e:
+            return JupyterExecutionResult(
+                success=False,
+                execution_count=self.execution_count,
+                outputs=[self._create_error_output(
+                    type(e).__name__,
+                    str(e),
+                    []
+                )],
+                execution_time=time.time() - start_time,
+                error_message=str(e)
+            )
+
+    def _execute_with_package_support(self, java_codes: list[str], start_time: float) -> JupyterExecutionResult:
+        """Execute Java code using PackageManager for package support."""
+        try:
+            # AIDEV-NOTE: Use PackageManager for multi-class and package support
+            result = self.package_manager.process_multi_class_execution(java_codes)
+
+            outputs = []
+            success = result["success"]
+
+            # AIDEV-NOTE: Add stdout output if present
+            if result.get("stdout"):
+                outputs.append(JupyterStream(
+                    name="stdout",
+                    text=result["stdout"]
+                ))
+
+            # AIDEV-NOTE: Add stderr output if present
+            if result.get("stderr"):
+                outputs.append(JupyterStream(
+                    name="stderr",
+                    text=result["stderr"]
+                ))
+
+            # AIDEV-NOTE: Add error output for failures
+            if not success:
+                error_message = result.get("error", "Unknown error")
+                outputs.append(self._create_error_output(
+                    "ExecutionError",
+                    error_message,
+                    result.get("compilation_error", "").splitlines() if result.get("compilation_error") else []
+                ))
+
+            return JupyterExecutionResult(
+                success=success,
+                execution_count=self.execution_count,
+                outputs=outputs,
+                execution_time=time.time() - start_time,
+                error_message=result.get("error") if not success else None
+            )
+
+        except Exception as e:
+            return JupyterExecutionResult(
+                success=False,
+                execution_count=self.execution_count,
+                outputs=[self._create_error_output(
+                    type(e).__name__,
+                    f"Package execution error: {str(e)}",
+                    []
+                )],
+                execution_time=time.time() - start_time,
+                error_message=f"Package execution error: {str(e)}"
+            )
+
+    def _execute_single_class_jupyter(self, processed_code: str, start_time: float) -> JupyterExecutionResult:
+        """Execute single Java class using legacy method (no packages)."""
+        try:
             # AIDEV-NOTE: Compile and run Java code in single temp directory context
             with tempfile.TemporaryDirectory() as temp_dir:
                 compilation_result = self._compile_java_code_in_dir(processed_code, temp_dir)
@@ -123,11 +246,11 @@ class JupyterJavaExecutor:
                 execution_count=self.execution_count,
                 outputs=[self._create_error_output(
                     type(e).__name__,
-                    str(e),
+                    f"Single class execution error: {str(e)}",
                     []
                 )],
                 execution_time=time.time() - start_time,
-                error_message=str(e)
+                error_message=f"Single class execution error: {str(e)}"
             )
 
     def _prepare_code(self, java_code: str) -> str:

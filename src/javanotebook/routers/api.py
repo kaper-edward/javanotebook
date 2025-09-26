@@ -7,7 +7,8 @@ from ..models import ExecutionRequest, ExecutionResult, NotebookInfo
 from ..nb_models import (
     JupyterExecutionRequest, JupyterExecutionResult, JupyterNotebookInfo,
     CellConnectionRequest, CellDisconnectionRequest, ProjectGroupExecutionRequest,
-    JavaNotebookMetadata, ProjectGroupInfo
+    JavaNotebookMetadata, ProjectGroupInfo, JupyterNotebookSaveRequest, JupyterNotebookSaveResult,
+    CompleteCellData
 )
 from ..executor import JavaExecutor
 from ..nb_executor import JupyterJavaExecutor
@@ -19,6 +20,8 @@ from ..exceptions import JavaNotebookError, JavaNotFoundError
 import nbformat
 import uuid
 import re
+import shutil
+import tempfile
 from pathlib import Path
 
 
@@ -423,3 +426,158 @@ async def execute_project_group(request: ProjectGroupExecutionRequest):
         raise HTTPException(status_code=400, detail=e.message)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Project execution failed: {str(e)}")
+
+
+@router.post("/jupyter/save", response_model=JupyterNotebookSaveResult)
+async def save_jupyter_notebook(request: JupyterNotebookSaveRequest):
+    """Save Jupyter notebook with complete cell data reconstruction."""
+    backup_path = None
+    try:
+        notebook_path = Path(request.notebook_path)
+
+        # Check if notebook file exists
+        if not notebook_path.exists():
+            raise HTTPException(status_code=404, detail="Notebook file not found")
+
+        # AIDEV-NOTE: Create backup for atomic save
+        backup_path = Path(tempfile.mktemp(suffix='.ipynb.backup'))
+        shutil.copy2(notebook_path, backup_path)
+
+        # AIDEV-NOTE: Load existing notebook to preserve metadata
+        parser = JupyterNotebookParser()
+        original_notebook = parser.parse_file(str(notebook_path))
+
+        # AIDEV-NOTE: Create completely new notebook from frontend data
+        from ..nb_models import (
+            JupyterNotebook, JupyterCodeCell, JupyterMarkdownCell, JupyterRawCell,
+            JupyterStream, JupyterError, JupyterExecuteResult
+        )
+
+        new_notebook = JupyterNotebook()
+
+        # Preserve original notebook metadata if requested
+        if request.preserve_metadata:
+            new_notebook.metadata = original_notebook.metadata
+            new_notebook.nbformat = original_notebook.nbformat
+            new_notebook.nbformat_minor = original_notebook.nbformat_minor
+
+        # AIDEV-NOTE: Rebuild all cells from frontend data
+        created_cells_count = 0
+
+        for cell_data in request.cells_data:
+            try:
+                # Normalize source
+                source = cell_data.source
+                if isinstance(source, str):
+                    source = source.splitlines(True) if '\n' in source else [source]
+
+                # Create appropriate cell type
+                if cell_data.cell_type == "code":
+                    new_cell = JupyterCodeCell(
+                        id=cell_data.id,
+                        source=source,
+                        metadata=cell_data.metadata,
+                        execution_count=cell_data.execution_count
+                    )
+
+                    # AIDEV-NOTE: Reconstruct outputs from frontend data
+                    for output_data in cell_data.outputs:
+                        output_type = output_data.get("output_type")
+                        if output_type == "stream":
+                            output = JupyterStream(**output_data)
+                        elif output_type == "error":
+                            output = JupyterError(**output_data)
+                        elif output_type == "execute_result":
+                            output = JupyterExecuteResult(**output_data)
+                        else:
+                            continue
+                        new_cell.outputs.append(output)
+
+                elif cell_data.cell_type == "markdown":
+                    new_cell = JupyterMarkdownCell(
+                        id=cell_data.id,
+                        source=source,
+                        metadata=cell_data.metadata
+                    )
+
+                elif cell_data.cell_type == "raw":
+                    new_cell = JupyterRawCell(
+                        id=cell_data.id,
+                        source=source,
+                        metadata=cell_data.metadata
+                    )
+
+                else:
+                    raise ValueError(f"Unknown cell type: {cell_data.cell_type}")
+
+                new_notebook.cells.append(new_cell)
+                created_cells_count += 1
+
+            except Exception as e:
+                raise ValueError(f"Failed to create cell {cell_data.id}: {str(e)}")
+
+        # AIDEV-NOTE: Validate the reconstructed notebook
+        try:
+            nb_node = new_notebook.to_notebook_node()
+            nbformat.validate(nb_node)
+        except Exception as e:
+            raise ValueError(f"Notebook validation failed: {str(e)}")
+
+        # AIDEV-NOTE: Atomic save - write to temp file first
+        temp_path = Path(tempfile.mktemp(suffix='.ipynb.tmp'))
+        try:
+            parser.save_notebook(new_notebook, str(temp_path))
+
+            # Verify the saved file
+            test_notebook = parser.parse_file(str(temp_path))
+            if len(test_notebook.cells) != created_cells_count:
+                raise ValueError(f"Save verification failed: expected {created_cells_count} cells, got {len(test_notebook.cells)}")
+
+            # Move temp file to actual location
+            shutil.move(temp_path, notebook_path)
+
+            # Clean up backup
+            if backup_path and backup_path.exists():
+                backup_path.unlink()
+
+            return JupyterNotebookSaveResult(
+                success=True,
+                message=f"노트북이 성공적으로 재구성되어 저장되었습니다. {created_cells_count}개 셀이 처리되었습니다.",
+                saved_cells_count=created_cells_count,
+                file_path=str(notebook_path)
+            )
+
+        except Exception as e:
+            # Clean up temp file
+            if temp_path.exists():
+                temp_path.unlink()
+            raise e
+
+    except Exception as e:
+        # AIDEV-NOTE: Restore backup on any failure
+        if backup_path and backup_path.exists():
+            try:
+                shutil.move(backup_path, notebook_path)
+            except Exception as restore_error:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Save failed and backup restore failed: {str(e)} | Restore error: {str(restore_error)}"
+                )
+
+        # Handle specific error types
+        if isinstance(e, ValueError):
+            raise HTTPException(status_code=400, detail=f"Data validation error: {str(e)}")
+        elif isinstance(e, FileNotFoundError):
+            raise HTTPException(status_code=404, detail="Notebook file not found")
+        elif isinstance(e, PermissionError):
+            raise HTTPException(status_code=403, detail="Permission denied: Cannot write to notebook file")
+        else:
+            raise HTTPException(status_code=500, detail=f"Save failed: {str(e)}")
+
+    finally:
+        # Clean up backup file
+        if backup_path and backup_path.exists():
+            try:
+                backup_path.unlink()
+            except:
+                pass

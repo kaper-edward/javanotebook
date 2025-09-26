@@ -127,16 +127,16 @@ class JupyterExecuteResult(JupyterOutput):
     data: Dict[str, Any] = Field(default_factory=dict)
 
 
-class JupyterStream(JupyterOutput):
-    """Model for stream outputs (stdout/stderr)."""
+class JupyterStream(BaseModel):
+    """Model for stream outputs (stdout/stderr) - nbformat compliant."""
 
     output_type: Literal["stream"] = "stream"
     name: Literal["stdout", "stderr"] = "stdout"
     text: Union[str, List[str]] = ""
 
 
-class JupyterError(JupyterOutput):
-    """Model for error outputs."""
+class JupyterError(BaseModel):
+    """Model for error outputs - nbformat compliant."""
 
     output_type: Literal["error"] = "error"
     ename: str = ""
@@ -369,6 +369,36 @@ class JupyterExecutionResult(BaseModel):
     )
     execution_time: Optional[float] = None
     error_message: Optional[str] = None
+
+
+class CompleteCellData(BaseModel):
+    """Complete cell data model for saving."""
+
+    id: str = Field(..., description="Cell ID")
+    cell_type: Literal["code", "markdown", "raw"] = Field(..., description="Cell type")
+    source: Union[str, List[str]] = Field(..., description="Cell source code/content")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Cell metadata")
+
+    # Code cell specific fields
+    execution_count: Optional[int] = Field(None, description="Execution count for code cells")
+    outputs: List[Dict[str, Any]] = Field(default_factory=list, description="Cell outputs for code cells")
+
+
+class JupyterNotebookSaveRequest(BaseModel):
+    """Request model for saving a Jupyter notebook."""
+
+    notebook_path: str = Field(..., description="Path to the notebook file")
+    cells_data: List[CompleteCellData] = Field(..., description="Complete cell data to save")
+    preserve_metadata: bool = Field(True, description="Whether to preserve notebook metadata")
+
+
+class JupyterNotebookSaveResult(BaseModel):
+    """Response model for notebook save operation."""
+
+    success: bool
+    message: str
+    saved_cells_count: int
+    file_path: str
 
 
 class JupyterNotebookInfo(BaseModel):

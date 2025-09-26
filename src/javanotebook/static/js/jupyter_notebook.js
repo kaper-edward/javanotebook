@@ -11,7 +11,10 @@ let notebookState = {
     isExecuting: false,
     kernelStatus: 'ready',
     projectGroups: new Map(),
-    currentNotebookPath: window.notebookPath || ''
+    currentNotebookPath: window.notebookPath || '',
+    autoSaveEnabled: false,
+    unsavedChanges: false,
+    lastSaveTime: null
 };
 
 // Initialize Jupyter notebook interface
@@ -46,6 +49,9 @@ async function initializeJupyterNotebook() {
 
     // AIDEV-NOTE: Setup cell connection functionality
     setupCellConnectionUI();
+
+    // AIDEV-NOTE: Setup auto-save functionality
+    setupAutoSave();
 
     // Load project groups and update UI (always update UI even if loading fails)
     try {
@@ -142,8 +148,19 @@ function initializeCodeEditors() {
                 setActiveCell(cellId);
             });
 
+            // AIDEV-NOTE: Track changes for auto-save
+            editor.on('change', () => {
+                markUnsavedChanges();
+            });
+
         } else {
             console.warn('CodeMirror not loaded, using plain textarea');
+
+            // AIDEV-NOTE: Add change tracking for plain textarea fallback
+            textarea.addEventListener('input', () => {
+                markUnsavedChanges();
+            });
+
             // Mark textarea as processed even without CodeMirror to prevent duplicate processing
             textarea.dataset.cmInitialized = 'true';
         }
@@ -274,6 +291,11 @@ function editMarkdownCell(cellId) {
             };
 
             textarea.addEventListener('keydown', handleKeydown);
+
+            // AIDEV-NOTE: Track changes for auto-save in markdown cells
+            textarea.addEventListener('input', () => {
+                markUnsavedChanges();
+            });
         }
     }
 }
@@ -371,6 +393,10 @@ async function executeJupyterCell(cellId) {
         if (response.ok) {
             displayJupyterExecutionResult(cellId, result);
             showNotification('코드 실행 완료', 'success');
+
+            // AIDEV-NOTE: Mark unsaved changes after execution (output has changed)
+            markUnsavedChanges();
+
             return true;
         } else {
             throw new Error(result.detail || 'Execution failed');
@@ -824,7 +850,61 @@ function setupCellManagement() {
                 cell.remove();
                 notebookState.editors.delete(cellId);
                 showNotification('셀이 삭제되었습니다.', 'info');
+                markUnsavedChanges();
             }
+        }
+    };
+
+    // AIDEV-NOTE: Raw cell editing functions
+    window.editRawCell = function(cellId) {
+        const contentDiv = document.getElementById(`raw-content-${cellId}`);
+        const editorDiv = document.getElementById(`raw-editor-${cellId}`);
+        const textarea = document.getElementById(`raw-source-${cellId}`);
+
+        if (contentDiv && editorDiv && textarea) {
+            contentDiv.style.display = 'none';
+            editorDiv.style.display = 'block';
+            textarea.focus();
+
+            // Add change tracking
+            textarea.addEventListener('input', () => {
+                markUnsavedChanges();
+            }, { once: false });
+        }
+    };
+
+    window.saveRawCell = function(cellId) {
+        const contentDiv = document.getElementById(`raw-content-${cellId}`);
+        const editorDiv = document.getElementById(`raw-editor-${cellId}`);
+        const textarea = document.getElementById(`raw-source-${cellId}`);
+        const displayPre = contentDiv ? contentDiv.querySelector('.raw-display') : null;
+
+        if (contentDiv && editorDiv && textarea && displayPre) {
+            // Update display content
+            displayPre.textContent = textarea.value;
+
+            // Switch back to display mode
+            editorDiv.style.display = 'none';
+            contentDiv.style.display = 'block';
+
+            showNotification('Raw 셀이 업데이트되었습니다.', 'success');
+            markUnsavedChanges();
+        }
+    };
+
+    window.cancelRawEdit = function(cellId) {
+        const contentDiv = document.getElementById(`raw-content-${cellId}`);
+        const editorDiv = document.getElementById(`raw-editor-${cellId}`);
+        const textarea = document.getElementById(`raw-source-${cellId}`);
+        const displayPre = contentDiv ? contentDiv.querySelector('.raw-display') : null;
+
+        if (contentDiv && editorDiv && textarea && displayPre) {
+            // Restore original content
+            textarea.value = displayPre.textContent || displayPre.innerText;
+
+            // Switch back to display mode
+            editorDiv.style.display = 'none';
+            contentDiv.style.display = 'block';
         }
     };
 }
@@ -880,35 +960,218 @@ async function saveNotebook() {
     try {
         showNotification('노트북 저장 중...', 'info');
 
-        // Collect cell data
+        // AIDEV-NOTE: Check if notebook path is available
+        if (!notebookState.currentNotebookPath) {
+            showNotification('노트북 경로를 찾을 수 없습니다.', 'error');
+            return;
+        }
+
+        // AIDEV-NOTE: Collect complete cell data from DOM with all necessary information
         const cellsData = [];
-        document.querySelectorAll('.jupyter-cell').forEach(cell => {
+        document.querySelectorAll('.jupyter-cell').forEach((cell, index) => {
             const cellId = cell.getAttribute('data-cell-id');
             const cellType = cell.getAttribute('data-cell-type');
 
-            let source = '';
-            if (cellType === 'code') {
-                const editor = notebookState.editors.get(cellId);
-                source = editor ? editor.getValue() : '';
-            } else if (cellType === 'markdown') {
-                const textarea = document.getElementById(`markdown-source-${cellId}`);
-                source = textarea ? textarea.value : '';
+            if (!cellId || !cellType) {
+                console.warn(`[DEBUG] Skipping cell with missing ID or type:`, cell);
+                return;
             }
 
-            cellsData.push({
+            // AIDEV-NOTE: Collect source with multiple fallback methods
+            let source = '';
+
+            if (cellType === 'code') {
+                // Try CodeMirror editor first
+                const editor = notebookState.editors.get(cellId);
+                if (editor && typeof editor.getValue === 'function') {
+                    source = editor.getValue();
+                } else {
+                    // Fallback to textarea
+                    const textarea = document.getElementById(`editor-${cellId}`);
+                    if (textarea) {
+                        source = textarea.value;
+                    } else {
+                        // Last fallback: try to find any code input in the cell
+                        const codeInput = cell.querySelector('.code-editor');
+                        source = codeInput ? codeInput.value : '';
+                    }
+                }
+            } else if (cellType === 'markdown') {
+                // Get from hidden textarea (contains the raw markdown)
+                const textarea = document.getElementById(`markdown-source-${cellId}`);
+                if (textarea) {
+                    source = textarea.value;
+                } else {
+                    // Fallback: try to find any markdown source
+                    const markdownSource = cell.querySelector('.markdown-source');
+                    source = markdownSource ? markdownSource.value : '';
+                }
+            } else if (cellType === 'raw') {
+                // AIDEV-NOTE: For raw cells, prioritize textarea content over display content
+                const rawTextarea = document.getElementById(`raw-source-${cellId}`);
+                if (rawTextarea) {
+                    source = rawTextarea.value;
+                } else {
+                    // Fallback to the displayed content
+                    const rawDisplay = cell.querySelector('.raw-display');
+                    source = rawDisplay ? (rawDisplay.textContent || rawDisplay.innerText) : '';
+                }
+            }
+
+            // AIDEV-NOTE: Collect execution count and outputs for code cells
+            let executionCount = null;
+            let outputs = [];
+
+            if (cellType === 'code') {
+                // Get execution count from input prompt
+                const inputPrompt = cell.querySelector('.input-prompt');
+                if (inputPrompt) {
+                    const promptText = inputPrompt.textContent || inputPrompt.innerText;
+                    const execMatch = promptText.match(/In\s*\[\s*(\d+)\s*\]/);
+                    if (execMatch) {
+                        executionCount = parseInt(execMatch[1], 10);
+                    }
+                }
+
+                // AIDEV-NOTE: Collect outputs from the cell
+                const outputContent = document.getElementById(`output-content-${cellId}`);
+                if (outputContent && outputContent.innerHTML.trim()) {
+                    // Parse existing outputs from DOM
+                    const outputElements = outputContent.querySelectorAll('.jupyter-output');
+
+                    outputElements.forEach(outputEl => {
+                        const streamStdout = outputEl.querySelector('.stream-stdout pre');
+                        const streamStderr = outputEl.querySelector('.stream-stderr pre');
+                        const errorOutput = outputEl.querySelector('.error-output');
+                        const resultOutput = outputEl.querySelector('pre:not(.error-traceback)');
+
+                        if (streamStdout) {
+                            outputs.push({
+                                output_type: 'stream',
+                                name: 'stdout',
+                                text: streamStdout.textContent || streamStdout.innerText
+                            });
+                        } else if (streamStderr) {
+                            outputs.push({
+                                output_type: 'stream',
+                                name: 'stderr',
+                                text: streamStderr.textContent || streamStderr.innerText
+                            });
+                        } else if (errorOutput) {
+                            const errorTitle = errorOutput.querySelector('.error-title');
+                            const errorTraceback = errorOutput.querySelector('.error-traceback');
+
+                            outputs.push({
+                                output_type: 'error',
+                                ename: 'JavaError',
+                                evalue: errorTitle ? (errorTitle.textContent || errorTitle.innerText) : 'Unknown error',
+                                traceback: errorTraceback ? [(errorTraceback.textContent || errorTraceback.innerText)] : []
+                            });
+                        } else if (resultOutput && !resultOutput.closest('.error-output')) {
+                            outputs.push({
+                                output_type: 'execute_result',
+                                execution_count: executionCount,
+                                data: {
+                                    'text/plain': resultOutput.textContent || resultOutput.innerText
+                                },
+                                metadata: {}
+                            });
+                        }
+                    });
+
+                    // Fallback: if no structured outputs found but there's content, create a simple output
+                    if (outputs.length === 0 && outputContent.textContent.trim()) {
+                        outputs.push({
+                            output_type: 'stream',
+                            name: 'stdout',
+                            text: outputContent.textContent || outputContent.innerText
+                        });
+                    }
+                }
+            }
+
+            // AIDEV-NOTE: Collect metadata including JavaNotebook-specific data
+            let metadata = {};
+
+            // Check for JavaNotebook metadata (connection info)
+            if (cellType === 'code') {
+                const isConnected = isCellConnected(cellId);
+                if (isConnected) {
+                    // Find the group this cell belongs to
+                    for (const [groupId, groupInfo] of notebookState.projectGroups) {
+                        if (groupInfo.cell_ids.includes(cellId)) {
+                            const cellIndex = groupInfo.cell_ids.indexOf(cellId);
+                            metadata.javanotebook = {
+                                project_group: groupId,
+                                execution_order: cellIndex,
+                                is_main: cellIndex === groupInfo.cell_ids.length - 1, // Last cell is typically main
+                                package_name: null, // This would need to be extracted from code
+                                class_name: null    // This would need to be extracted from code
+                            };
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // AIDEV-NOTE: Create complete cell data object
+            const cellData = {
                 id: cellId,
-                type: cellType,
-                source: source
-            });
+                cell_type: cellType,
+                source: source,
+                metadata: metadata
+            };
+
+            // Add code-specific fields
+            if (cellType === 'code') {
+                cellData.execution_count = executionCount;
+                cellData.outputs = outputs;
+            }
+
+            cellsData.push(cellData);
+
+            console.log(`[DEBUG] Collected cell ${index + 1}/${document.querySelectorAll('.jupyter-cell').length}: ${cellId} (${cellType}), source length: ${source.length}, outputs: ${outputs.length}`);
         });
 
-        // Here you would send the data to the server
-        // For now, just show success message
-        showNotification('노트북이 저장되었습니다.', 'success');
+        console.log(`[DEBUG] Saving ${cellsData.length} cells to ${notebookState.currentNotebookPath}`);
+
+        // AIDEV-NOTE: Send save request to server
+        const response = await fetch('/api/v1/jupyter/save', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                notebook_path: notebookState.currentNotebookPath,
+                cells_data: cellsData
+            })
+        });
+
+        const result = await response.json();
+
+        if (response.ok && result.success) {
+            showNotification(result.message, 'success');
+            console.log(`[DEBUG] Successfully saved ${result.saved_cells_count} cells`);
+
+            // AIDEV-NOTE: Update save state
+            notebookState.unsavedChanges = false;
+            notebookState.lastSaveTime = new Date();
+            updateSaveStatus();
+        } else {
+            throw new Error(result.detail || result.message || 'Save failed');
+        }
 
     } catch (error) {
         console.error('Save error:', error);
-        showNotification('저장 중 오류가 발생했습니다.', 'error');
+
+        let errorMessage = '저장 중 오류가 발생했습니다.';
+        if (error instanceof TypeError && error.message.includes('fetch')) {
+            errorMessage = '네트워크 연결 오류가 발생했습니다. 서버가 실행 중인지 확인해주세요.';
+        } else if (error.message) {
+            errorMessage = `저장 오류: ${error.message}`;
+        }
+
+        showNotification(errorMessage, 'error');
     }
 }
 
@@ -1465,6 +1728,100 @@ function displayGroupExecutionResult(groupId, result) {
 
     // AIDEV-NOTE: Update input prompt for the last cell to show execution count
     updateInputPrompt(lastCellId, notebookState.executionCount);
+}
+
+// AIDEV-NOTE: Auto-save functionality
+function setupAutoSave() {
+    console.log('Setting up auto-save functionality...');
+
+    // Add auto-save toggle to the toolbar
+    const toolbarGroup = document.querySelector('.toolbar-group');
+    if (toolbarGroup) {
+        const autoSaveToggle = document.createElement('button');
+        autoSaveToggle.className = 'btn btn-auto-save';
+        autoSaveToggle.id = 'auto-save-toggle';
+        autoSaveToggle.innerHTML = '🔄 자동저장: OFF';
+        autoSaveToggle.title = '자동 저장 켜기/끄기 (5분마다)';
+        autoSaveToggle.onclick = toggleAutoSave;
+
+        toolbarGroup.appendChild(autoSaveToggle);
+        updateSaveStatus();
+    }
+
+    // Set up auto-save interval (5 minutes)
+    setInterval(() => {
+        if (notebookState.autoSaveEnabled && notebookState.unsavedChanges) {
+            console.log('[DEBUG] Auto-saving notebook...');
+            autoSaveNotebook();
+        }
+    }, 5 * 60 * 1000); // 5 minutes
+
+    // AIDEV-NOTE: Set up beforeunload warning for unsaved changes
+    window.addEventListener('beforeunload', (event) => {
+        if (notebookState.unsavedChanges) {
+            event.preventDefault();
+            event.returnValue = '저장하지 않은 변경사항이 있습니다. 정말로 나가시겠습니까?';
+        }
+    });
+}
+
+function toggleAutoSave() {
+    notebookState.autoSaveEnabled = !notebookState.autoSaveEnabled;
+    updateSaveStatus();
+
+    const message = notebookState.autoSaveEnabled ?
+        '자동 저장이 활성화되었습니다 (5분마다)' :
+        '자동 저장이 비활성화되었습니다';
+
+    showNotification(message, 'info');
+    console.log(`[DEBUG] Auto-save ${notebookState.autoSaveEnabled ? 'enabled' : 'disabled'}`);
+}
+
+async function autoSaveNotebook() {
+    try {
+        console.log('[DEBUG] Performing auto-save...');
+        await saveNotebook();
+        console.log('[DEBUG] Auto-save completed successfully');
+    } catch (error) {
+        console.error('[DEBUG] Auto-save failed:', error);
+        showNotification('자동 저장 실패', 'warning');
+    }
+}
+
+function markUnsavedChanges() {
+    if (!notebookState.unsavedChanges) {
+        notebookState.unsavedChanges = true;
+        updateSaveStatus();
+        console.log('[DEBUG] Marked unsaved changes');
+    }
+}
+
+function updateSaveStatus() {
+    const autoSaveToggle = document.getElementById('auto-save-toggle');
+    const saveButton = document.querySelector('.btn-save');
+
+    if (autoSaveToggle) {
+        autoSaveToggle.innerHTML = notebookState.autoSaveEnabled ?
+            '🔄 자동저장: ON' : '🔄 자동저장: OFF';
+        autoSaveToggle.classList.toggle('active', notebookState.autoSaveEnabled);
+    }
+
+    if (saveButton) {
+        if (notebookState.unsavedChanges) {
+            saveButton.innerHTML = '💾 저장 *';
+            saveButton.title = '저장되지 않은 변경사항이 있습니다';
+            saveButton.style.fontWeight = 'bold';
+        } else {
+            saveButton.innerHTML = '💾 저장';
+            saveButton.title = '노트북 저장';
+            saveButton.style.fontWeight = 'normal';
+
+            if (notebookState.lastSaveTime) {
+                const timeStr = notebookState.lastSaveTime.toLocaleTimeString();
+                saveButton.title = `마지막 저장: ${timeStr}`;
+            }
+        }
+    }
 }
 
 function removeExistingGroupOutputs(groupId) {

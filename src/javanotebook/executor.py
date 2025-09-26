@@ -9,6 +9,7 @@ from typing import Dict, Any
 from .models import ExecutionResult
 from .exceptions import CompilationError, ExecutionError, JavaNotFoundError
 from .parser import NotebookParser
+from .package_manager import PackageManager
 
 
 class JavaExecutor:
@@ -17,6 +18,7 @@ class JavaExecutor:
     def __init__(self, timeout: int = 30):
         self.timeout = timeout
         self.parser = NotebookParser()
+        self.package_manager = PackageManager(timeout)
         self._verify_java_installation()
     
     def _verify_java_installation(self) -> None:
@@ -57,25 +59,92 @@ class JavaExecutor:
     async def execute_java_code(self, java_code: str) -> ExecutionResult:
         """Execute Java code and return results."""
         start_time = time.time()
-        
+
         try:
             # AIDEV-NOTE: Auto-wrap code with main method if needed
             processed_code = self.wrap_code_with_main(java_code)
-            
+
+            # AIDEV-NOTE: Check if code has package declaration
+            has_package = self.parser.has_package_declaration(processed_code)
+
+            if has_package:
+                # AIDEV-NOTE: Use PackageManager for code with packages
+                return await self._execute_with_package_support([processed_code], start_time)
+            else:
+                # AIDEV-NOTE: Use legacy method for simple code without packages
+                return await self._execute_single_class(processed_code, start_time)
+
+        except Exception as e:
+            return ExecutionResult(
+                success=False,
+                error_message=f"Unexpected error: {str(e)}",
+                execution_time=time.time() - start_time
+            )
+
+    async def execute_multiple_java_codes(self, java_codes: list[str]) -> ExecutionResult:
+        """Execute multiple Java code cells with package support."""
+        start_time = time.time()
+
+        try:
+            # AIDEV-NOTE: Auto-wrap each code with main method if needed
+            processed_codes = [self.wrap_code_with_main(code) for code in java_codes if code.strip()]
+
+            if not processed_codes:
+                return ExecutionResult(
+                    success=False,
+                    error_message="No valid Java code provided",
+                    execution_time=time.time() - start_time
+                )
+
+            # AIDEV-NOTE: Use PackageManager for multiple classes
+            return await self._execute_with_package_support(processed_codes, start_time)
+
+        except Exception as e:
+            return ExecutionResult(
+                success=False,
+                error_message=f"Unexpected error: {str(e)}",
+                execution_time=time.time() - start_time
+            )
+
+    async def _execute_with_package_support(self, java_codes: list[str], start_time: float) -> ExecutionResult:
+        """Execute Java code using PackageManager for package support."""
+        try:
+            # AIDEV-NOTE: Use PackageManager for multi-class and package support
+            result = self.package_manager.process_multi_class_execution(java_codes)
+
+            return ExecutionResult(
+                success=result["success"],
+                stdout=result.get("stdout", ""),
+                stderr=result.get("stderr", ""),
+                compilation_error=result.get("compilation_error"),
+                error_message=result.get("error"),
+                execution_time=time.time() - start_time
+            )
+
+        except Exception as e:
+            return ExecutionResult(
+                success=False,
+                error_message=f"Package execution error: {str(e)}",
+                execution_time=time.time() - start_time
+            )
+
+    async def _execute_single_class(self, processed_code: str, start_time: float) -> ExecutionResult:
+        """Execute single Java class using legacy method (no packages)."""
+        try:
             # AIDEV-NOTE: Validate processed Java code structure
             if not self.parser.validate_java_code(processed_code):
                 return ExecutionResult(
                     success=False,
                     error_message="Java code must contain a public class with a main method"
                 )
-            
+
             class_name = self.parser.extract_class_name(processed_code)
-            
+
             with tempfile.TemporaryDirectory() as temp_dir:
                 # AIDEV-NOTE: Create temporary Java file
                 java_file = Path(temp_dir) / f"{class_name}.java"
                 java_file.write_text(processed_code, encoding='utf-8')
-                
+
                 # Compile Java code
                 compile_result = await self._compile_java(java_file)
                 if not compile_result["success"]:
@@ -84,10 +153,10 @@ class JavaExecutor:
                         compilation_error=compile_result["stderr"],
                         execution_time=time.time() - start_time
                     )
-                
+
                 # Execute compiled Java code
                 exec_result = await self._execute_java(temp_dir, class_name)
-                
+
                 return ExecutionResult(
                     success=exec_result["success"],
                     stdout=exec_result["stdout"],
@@ -95,11 +164,11 @@ class JavaExecutor:
                     execution_time=time.time() - start_time,
                     error_message=exec_result.get("error_message")
                 )
-                
+
         except Exception as e:
             return ExecutionResult(
                 success=False,
-                error_message=f"Unexpected error: {str(e)}",
+                error_message=f"Single class execution error: {str(e)}",
                 execution_time=time.time() - start_time
             )
     
